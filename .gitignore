@@ -1,0 +1,4 @@
+autoware_devel/build/*
+autoware_devel/install/*
+autoware_devel/log/*
+autoware_map/sample-map-planning/*

@@ -1,0 +1,54 @@
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug
+
+sudo apt update
+sudo apt install gdb
+
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug --parallel-workers 2
+
+colcon build --packages-select eagleye_rt --cmake-clean-first --cmake-args -DCMAKE_BUILD_TYPE=Debug 清除在编译指定的库
+
+source /home/developer/autoware/autoware_devel/install/setup.bash
+
+echo 'source /home/developer/autoware/autoware_devel/install/setup.bash' >> ~/.bashrc
+当前用户生效
+
+echo 'source /home/developer/autoware/autoware_devel/install/setup.bash' | sudo tee -a /etc/bash.bashrc  所有用户生效
+
+ros2 launch autoware_launch planning_simulator.launch.xml map_path:=/home/developer/autoware/autoware_map/sample-map-planning vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit
+
+
+planning_simulator.launch.xml
+
+autoware_devel/src/launcher/autoware_launch/autoware_launch/launch/autoware.launch.xml
+
+autoware_devel/src/launcher/autoware_launch/autoware_launch/launch/components/tier4_simulator_component.launch.xml
+
+autoware_devel/src/universe/autoware_universe/launch/tier4_simulator_launch/launch/simulator.launch.xml
+
+注册类为可执行文件，类的构造函数会直接运行，创建节点，并订阅发布话题
+
+
+autoware_devel/src/universe/autoware_universe/simulator/autoware_fault_injection/src/fault_injection_node/fault_injection_node.cpp：
+订阅
+
+1、
+autoware_devel/src/core/autoware_core/map/autoware_map_loader/script/map_hash_generator
+
+    self.pub = self.create_publisher(MapHash, "/api/autoware/get/map/info/hash", qos_profile) # 发布地图
+    self.pub.publish(msg)
+
+    self.srv = self.create_service(
+        GetTextFile, "/api/autoware/get/map/lanelet/xml", self.on_get_lanelet_xml # 服务端返回道路线
+    )  # noqa: E501
+
+2、
+autoware_devel/src/core/autoware_core/map/autoware_map_projection_loader/src/map_projection_loader.cpp
+  // Publish the message 地图投影信息和缩放因子
+  publisher_ = this->create_publisher<MapProjectorInfo::Message>(
+    MapProjectorInfo::name, autoware::component_interface_specs::get_qos<MapProjectorInfo>());
+  publisher_->publish(msg); //"/map/map_projector_info"
+
+git config --global user.name "erge"
+git config --global user.email "2822936659@qq.com"

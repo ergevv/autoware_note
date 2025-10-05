@@ -1,0 +1,26 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ROS2: Launch",
+            "type": "ros2",
+            "request": "launch",
+            "target": "/home/developer/autoware/autoware_devel/install/autoware_launch/share/autoware_launch/launch/planning_simulator.launch.xml",
+            "arguments": [
+                "map_path:=/home/developer/autoware/autoware_map/sample-map-planning",
+                "vehicle_model:=sample_vehicle",
+                "sensor_model:=sample_sensor_kit"
+            ],
+            "preLaunchTask": "source-workspace"
+            // "env": {
+            //     "AMENT_PREFIX_PATH": "/home/developer/autoware/autoware_devel/install",
+            //     "COLCON_PREFIX_PATH": "/home/developer/autoware/autoware_devel/install",
+            //     "PYTHONPATH": "/home/developer/autoware/autoware_devel/install/lib/python3.8/site-packages:${env:PYTHONPATH}"
+            // }
+        }
+
+    ]
+}

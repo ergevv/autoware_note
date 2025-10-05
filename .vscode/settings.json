@@ -1,0 +1,8 @@
+{
+    "ros.distro": "noetic",
+    "files.associations": {
+        "*.proto": "plaintext",
+        "functional": "cpp"
+    },
+    "git.ignoreLimitWarning": true
+}

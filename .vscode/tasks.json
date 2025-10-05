@@ -1,0 +1,21 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "source-workspace",
+            "type": "shell",
+            "command": "/bin/bash",
+            "args": ["-c", "source /home/developer/autoware/autoware_devel/install/setup.bash && printenv > /tmp/autoware_env.txt"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "options": {
+                "cwd": "/home/developer/autoware"
+            }
+        }
+    ]
+}

@@ -1,0 +1,48 @@
+{
+  "name": "Autoware Universe Dev",
+  "image": "ghcr.io/autowarefoundation/autoware:universe-devel-20250903-amd64",
+
+  // 映射 ROS2 工作空间
+  "workspaceFolder": "/home/developer/autoware",
+
+  // 转发常用端口（如 RViz、Web 服务等）
+  "forwardPorts": [8080, 9090, 50051],
+
+  // 可选：挂载本地目录到容器内（推荐）
+  "mounts": [
+    {
+      "type": "bind",
+      "source": "${localWorkspaceFolder}",
+      "target": "/home/developer/autoware"
+    }
+  ],
+
+  // 容器启动后执行的命令（可选）
+  //   "postCreateCommand": "source /opt/ros/humble/setup.bash && cd /home/developer/autoware && echo 'Dev container ready!'",
+
+  // 推荐安装的 VS Code 扩展
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.vscode-python-envs",
+        "Ranch-Hand-Robotics.rde-pack"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  // 提升权限（Autoware 可能需要 GUI 或设备访问）
+  "runArgs": [
+    "--privileged", // 根据需要开启（如需访问 GPU、串口等）
+    "-e",
+    "DISPLAY=${env:DISPLAY}",
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw"
+  ],
+  "postStartCommand": "xhost +local:root"
+}
