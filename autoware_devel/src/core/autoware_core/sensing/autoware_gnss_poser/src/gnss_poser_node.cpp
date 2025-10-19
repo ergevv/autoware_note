@@ -95,7 +95,7 @@ void GNSSPoser::callback_nav_sat_fix(
     return;
   }
 
-  // check fixed topic
+  // check fixed topic，检测gnss的精度
   const bool is_status_fixed = is_fixed(nav_sat_fix_msg_ptr->status);
 
   // publish is_fixed topic

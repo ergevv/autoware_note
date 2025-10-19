@@ -8,6 +8,12 @@
   <!-- whether use intra-process -->
   <arg name="use_intra_process" default="true" description="use ROS 2 component container communication"/>
 
+<!-- 这是典型的ROS 2组件容器使用模式：
+
+首先通过 pointcloud_container.launch.py 启动容器环境
+然后通过 util.launch.xml 将具体的点云处理组件加载到该容器中
+所有组件在同一个进程中运行，通过零拷贝通信提高性能 -->
+
   <load_composable_node target="$(var localization_pointcloud_container_name)">
     <composable_node pkg="autoware_pointcloud_preprocessor" plugin="autoware::pointcloud_preprocessor::CropBoxFilterComponent" name="crop_box_filter_measurement_range">
       <param from="$(var ndt_scan_matcher/pointcloud_preprocessor/crop_box_filter_measurement_range_param_path)"/>

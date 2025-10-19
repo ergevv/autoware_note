@@ -31,7 +31,7 @@ GyroBiasEstimator::GyroBiasEstimator(const rclcpp::NodeOptions & options)
   angular_velocity_offset_x_(declare_parameter<double>("angular_velocity_offset_x")),
   angular_velocity_offset_y_(declare_parameter<double>("angular_velocity_offset_y")),
   angular_velocity_offset_z_(declare_parameter<double>("angular_velocity_offset_z")),
-  timer_callback_interval_sec_(declare_parameter<double>("timer_callback_interval_sec")),
+  timer_callback_interval_sec_(declare_parameter<double>("timer_callback_interval_sec")), //0.5s
   diagnostics_updater_interval_sec_(declare_parameter<double>("diagnostics_updater_interval_sec")),
   straight_motion_ang_vel_upper_limit_(
     declare_parameter<double>("straight_motion_ang_vel_upper_limit")),
@@ -54,7 +54,7 @@ GyroBiasEstimator::GyroBiasEstimator(const rclcpp::NodeOptions & options)
 
   auto bound_timer_callback = std::bind(&GyroBiasEstimator::timer_callback, this);
   auto period_control = std::chrono::duration_cast<std::chrono::nanoseconds>(
-    std::chrono::duration<double>(timer_callback_interval_sec_));
+    std::chrono::duration<double>(timer_callback_interval_sec_)); //0.5s
   timer_ = std::make_shared<rclcpp::GenericTimer<decltype(bound_timer_callback)>>(
     this->get_clock(), period_control, std::move(bound_timer_callback),
     this->get_node_base_interface()->get_context());
@@ -154,7 +154,7 @@ void GyroBiasEstimator::timer_callback()
     autoware_utils::get_rpy(pose_buf.front().pose.orientation);
   const geometry_msgs::msg::Vector3 rpy_1 =
     autoware_utils::get_rpy(pose_buf.back().pose.orientation);
-  const double yaw_diff = std::abs(autoware_utils::normalize_radian(rpy_1.z - rpy_0.z));
+  const double yaw_diff = std::abs(autoware_utils::normalize_radian(rpy_1.z - rpy_0.z)); //外在旋转，也叫固定轴旋转
   const double time_diff = (t1_rclcpp_time - t0_rclcpp_time).seconds();
   const double yaw_vel = yaw_diff / time_diff;
   const bool is_straight = (yaw_vel < straight_motion_ang_vel_upper_limit_);
@@ -164,7 +164,7 @@ void GyroBiasEstimator::timer_callback()
     return;
   }
 
-  // Calculate gyro bias
+  // Calculate gyro bias, 通过直线运动评估零偏
   gyro_bias_estimation_module_->update_bias(pose_buf, gyro_filtered);
 
   geometry_msgs::msg::TransformStamped::ConstSharedPtr tf_base2imu_ptr =

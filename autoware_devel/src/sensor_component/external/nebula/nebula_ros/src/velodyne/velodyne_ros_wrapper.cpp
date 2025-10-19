@@ -22,7 +22,7 @@ VelodyneRosWrapper::VelodyneRosWrapper(const rclcpp::NodeOptions & options)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
-  wrapper_status_ = declare_and_get_sensor_config_params();
+  wrapper_status_ = declare_and_get_sensor_config_params();  //读取配置
 
   if (wrapper_status_ != Status::OK) {
     throw std::runtime_error("Sensor configuration invalid: " + util::to_string(wrapper_status_));
