@@ -19,9 +19,44 @@
   <group>
   <!-- push-ros-namespace 创建了一个命名空间作用域，在该作用域内的所有节点都会继承这个命名空间。 -->
     <push-ros-namespace namespace="map"/>
-<!-- node_container允许将多个节点运行在同一个进程中，提高资源利用效率并减少进程间通信开销。 -->
-    <node_container pkg="rclcpp_components" exec="$(var container_type)" name="map_container" namespace="" output="both">
+
+       <!-- PointCloud Map Loader as standalone node -->
+    <node pkg="autoware_map_loader" exec="autoware_pointcloud_map_loader" name="pointcloud_map_loader" output="both">
+      <param from="$(var pointcloud_map_loader_param_path)"/>
+      <param name="pcd_paths_or_directory" value="[$(var pointcloud_map_path)]"/>
+      <param name="pcd_metadata_path" value="$(var pointcloud_map_metadata_path)"/>
+      <remap from="output/pointcloud_map" to="pointcloud_map"/>
+      <remap from="output/pointcloud_map_metadata" to="pointcloud_map_metadata"/>
+      <remap from="service/get_partial_pcd_map" to="/map/get_partial_pointcloud_map"/>
+      <remap from="service/get_differential_pcd_map" to="/map/get_differential_pointcloud_map"/>
+      <remap from="service/get_selected_pcd_map" to="/map/get_selected_pointcloud_map"/>
+    </node>
+
+    <!-- Lanelet2 Map Loader as standalone node -->
+    <node pkg="autoware_map_loader" exec="autoware_lanelet2_map_loader" name="lanelet2_map_loader" output="both">
+      <param from="$(var lanelet2_map_loader_param_path)"/>
+      <param name="lanelet2_map_path" value="$(var lanelet2_map_path)"/>
+      <remap from="output/lanelet2_map" to="vector_map"/>
+    </node>
+
+    <!-- Lanelet2 Map Visualizer as standalone node，将节点原本订阅的input/lanelet2_map话题重映射为vector_map话题
+节点代码中订阅的是input/lanelet2_map，但实际运行时会订阅vector_map -->
+    <node pkg="autoware_lanelet2_map_visualizer" exec="autoware_lanelet2_map_visualizer" name="lanelet2_map_visualization" output="both">
+      <remap from="input/lanelet2_map" to="vector_map"/>
+      <remap from="output/lanelet2_map_marker" to="vector_map_marker"/>
+    </node>
+
+    <!-- Vector Map TF Generator as standalone node -->
+    <node pkg="autoware_map_tf_generator" exec="autoware_vector_map_tf_generator" name="vector_map_tf_generator" output="both">
+      <param from="$(var map_tf_generator_param_path)"/>
+    </node>
+
+<!-- node_container允许将多个节点运行在同一个进程中，提高资源利用效率并减少进程间通信开销。组合节点vscode无法调试，插件是运行后再加载的，vscode无法识别到插件，通过读取ros自带的库rclcpp_components里的可执行文件(var container_type)来选择多线程或者单线程-->
+
+      <!-- ROS 2会加载指定路径的参数文件（通常是YAML格式）autoware_devel/src/launcher/autoware_launch/autoware_launch/config/map/pointcloud_map_loader.param.yaml -->
+    <!-- <node_container pkg="rclcpp_components" exec="$(var container_type)" name="map_container" namespace="" output="both">
       <composable_node pkg="autoware_map_loader" plugin="autoware::map_loader::PointCloudMapLoaderNode" name="pointcloud_map_loader">
+
         <param from="$(var pointcloud_map_loader_param_path)"/>
         <param name="pcd_paths_or_directory" value="[$(var pointcloud_map_path)]"/>
         <param name="pcd_metadata_path" value="$(var pointcloud_map_metadata_path)"/>
@@ -46,7 +81,7 @@
       <composable_node pkg="autoware_map_tf_generator" plugin="autoware::map_tf_generator::VectorMapTFGeneratorNode" name="vector_map_tf_generator">
         <param from="$(var map_tf_generator_param_path)"/>
       </composable_node>
-    </node_container>
+    </node_container> -->
 
 <!-- 在 ROS 2 的 <node> 标签中，exec 属性指定的可执行文件可以是：
 

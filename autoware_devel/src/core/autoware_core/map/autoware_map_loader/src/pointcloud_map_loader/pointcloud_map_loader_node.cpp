@@ -47,13 +47,15 @@ bool is_pcd_file(const std::string & p)
 PointCloudMapLoaderNode::PointCloudMapLoaderNode(const rclcpp::NodeOptions & options)
 : Node("pointcloud_map_loader", options)
 {
-  const auto pcd_paths =
-    get_pcd_paths(declare_parameter<std::vector<std::string>>("pcd_paths_or_directory"));
-  std::string pcd_metadata_path = declare_parameter<std::string>("pcd_metadata_path");
-  bool enable_whole_load = declare_parameter<bool>("enable_whole_load");
-  bool enable_downsample_whole_load = declare_parameter<bool>("enable_downsampled_whole_load");
-  bool enable_partial_load = declare_parameter<bool>("enable_partial_load");
-  bool enable_selected_load = declare_parameter<bool>("enable_selected_load");
+  const auto pcd_paths = get_pcd_paths(
+    declare_parameter<std::vector<std::string>>("pcd_paths_or_directory"));  // pointcloud_map.pcd
+  std::string pcd_metadata_path = declare_parameter<std::string>(
+    "pcd_metadata_path");  // pointcloud_map_metadata.yaml，没有该文件
+  bool enable_whole_load = declare_parameter<bool>("enable_whole_load");  // true
+  bool enable_downsample_whole_load =
+    declare_parameter<bool>("enable_downsampled_whole_load");                   // false
+  bool enable_partial_load = declare_parameter<bool>("enable_partial_load");    // true
+  bool enable_selected_load = declare_parameter<bool>("enable_selected_load");  // false
 
   if (enable_whole_load) {
     std::string publisher_name = "output/pointcloud_map";
@@ -68,7 +70,7 @@ PointCloudMapLoaderNode::PointCloudMapLoaderNode(const rclcpp::NodeOptions & opt
   }
 
   // Parse the metadata file and get the map of (absolute pcd path, pcd file metadata)
-  auto pcd_metadata_dict = get_pcd_metadata(pcd_metadata_path, pcd_paths);
+  auto pcd_metadata_dict = get_pcd_metadata(pcd_metadata_path, pcd_paths);  // 路径和点云范围
 
   if (enable_partial_load) {
     partial_map_loader_ = std::make_unique<PartialMapLoaderModule>(this, pcd_metadata_dict);

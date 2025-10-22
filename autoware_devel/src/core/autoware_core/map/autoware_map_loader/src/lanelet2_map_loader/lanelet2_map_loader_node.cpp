@@ -60,11 +60,12 @@ using autoware_map_msgs::msg::MapProjectorInfo;
 Lanelet2MapLoaderNode::Lanelet2MapLoaderNode(const rclcpp::NodeOptions & options)
 : Node("lanelet2_map_loader", options)
 {
-  // subscription
+  // subscription,"/map/map_projector_info"
   sub_map_projector_info_ = this->create_subscription<MapProjectorInfo::Message>(
     MapProjectorInfo::name, autoware::component_interface_specs::get_qos<MapProjectorInfo>(),
     [this](const MapProjectorInfo::Message::ConstSharedPtr msg) { on_map_projector_info(msg); });
 
+  // 向参数服务器添加参数
   declare_parameter<bool>("allow_unsupported_version");
   declare_parameter<std::string>("lanelet2_map_path");
   declare_parameter<double>("center_line_resolution");
@@ -74,10 +75,11 @@ Lanelet2MapLoaderNode::Lanelet2MapLoaderNode(const rclcpp::NodeOptions & options
 void Lanelet2MapLoaderNode::on_map_projector_info(
   const MapProjectorInfo::Message::ConstSharedPtr msg)
 {
-  const auto allow_unsupported_version = get_parameter("allow_unsupported_version").as_bool();
-  const auto lanelet2_filename = get_parameter("lanelet2_map_path").as_string();
-  const auto center_line_resolution = get_parameter("center_line_resolution").as_double();
-  const auto use_waypoints = get_parameter("use_waypoints").as_bool();
+  const auto allow_unsupported_version =
+    get_parameter("allow_unsupported_version").as_bool();                         // true
+  const auto lanelet2_filename = get_parameter("lanelet2_map_path").as_string();  // 道路线地图
+  const auto center_line_resolution = get_parameter("center_line_resolution").as_double();  // 5.0
+  const auto use_waypoints = get_parameter("use_waypoints").as_bool();                      // true
 
   // load map from file
   const auto map = load_map(lanelet2_filename, *msg);

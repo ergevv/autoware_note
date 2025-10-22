@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
   <!-- Essential parameters -->
-  <arg name="map_path" description="point cloud and lanelet2 map directory path"/>
+  <arg name="map_path" default="/home/developer/autoware/autoware_map/sample-map-planning" description="point cloud and lanelet2 map directory path"/>
   <arg name="vehicle_model" default="sample_vehicle" description="vehicle model name"/>
   <arg name="sensor_model" default="sample_sensor_kit" description="sensor model name"/>
   <arg name="pointcloud_container_name" default="pointcloud_container"/>
@@ -13,16 +13,18 @@
 
   <!-- Optional parameters -->
   <!-- Modules to be launched -->
-  <arg name="launch_vehicle" default="true" description="launch vehicle"/>
+  <arg name="launch_vehicle" default="false" description="launch vehicle"/>
   <arg name="launch_system" default="true" description="launch system"/>
   <arg name="launch_map" default="true" description="launch map"/>
   <arg name="launch_sensing" default="true" description="launch sensing"/>
-  <arg name="launch_sensing_driver" default="true" description="launch sensing driver"/>
-  <arg name="launch_localization" default="true" description="launch localization"/>
-  <arg name="launch_perception" default="true" description="launch perception"/>
-  <arg name="launch_planning" default="true" description="launch planning"/>
-  <arg name="launch_control" default="true" description="launch control"/>
+  <arg name="launch_sensing_driver" default="false" description="launch sensing driver"/>
+  <arg name="launch_localization" default="false" description="launch localization"/>
+  <arg name="launch_perception" default="false" description="launch perception"/>
+  <arg name="launch_planning" default="false" description="launch planning"/>
+  <arg name="launch_control" default="false" description="launch control"/>
   <arg name="launch_api" default="true" description="launch api"/>
+<!-- 上面默认是true -->
+
   <!-- Global parameters -->
   <arg name="use_sim_time" default="false" description="use_sim_time"/>
   <!-- Vehicle -->
@@ -97,11 +99,14 @@
     <include file="$(find-pkg-share autoware_launch)/launch/components/tier4_map_component.launch.xml"/>
   </group>
 
+
+
   <!-- Sensing -->
   <!-- 加载车辆信息global_params.launch.py
   多线程模式和创建点云容器pointcloud_container.launch.py
   imu、lidar、gnss、Vehicle Velocity Converter
   /home/developer/autoware/autoware_devel/src/launcher/autoware_launch/sensor_kit/sample_sensor_kit_launch/sample_sensor_kit_launch/launch/sensing.launch.xml -->
+  
   <group if="$(var launch_sensing)">
     <include file="$(find-pkg-share autoware_launch)/launch/components/tier4_sensing_component.launch.xml">
     <!-- 使用arg显式传递参数 -->
@@ -149,6 +154,8 @@
       <arg name="vehicle_model" value="$(var vehicle_model)"/>
     </include>
   </group>
+
+
 
   <!-- API -->
   <group if="$(var launch_api)">

@@ -5,7 +5,12 @@ colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug
 sudo apt update
 sudo apt install gdb
 
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug --parallel-workers 2
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --parallel-workers 2
+
+colcon build \
+  --symlink-install \
+  --cmake-args -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  --parallel-workers 2
 
 colcon build --packages-select eagleye_rt --cmake-clean-first --cmake-args -DCMAKE_BUILD_TYPE=Debug 清除在编译指定的库
 
@@ -13,11 +18,16 @@ source /home/developer/autoware/autoware_devel/install/setup.bash
 
 echo 'source /home/developer/autoware/autoware_devel/install/setup.bash' >> ~/.bashrc
 当前用户生效
+nano ~/.bashrc
 
 echo 'source /home/developer/autoware/autoware_devel/install/setup.bash' | sudo tee -a /etc/bash.bashrc  所有用户生效
+sudo nano /etc/bash.bashrc
 
-ros2 launch autoware_launch planning_simulator.launch.xml map_path:=/home/developer/autoware/autoware_map/sample-map-planning vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit
+ros2 launch autoware_launch planning_simulator.launch.xml 
 
+map_path:=/home/developer/autoware/autoware_map/sample-map-planning vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit
+
+autoware_devel/src/universe/autoware_universe/launch/tier4_map_launch/launch/map.launch.xml
 
 planning_simulator.launch.xml
 
@@ -29,6 +39,12 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_simulator_launch/laun
 
 注册类为可执行文件，类的构造函数会直接运行，创建节点，并订阅发布话题
 
+ros2 node info /logging_diag_graph
+ros2 param list /logging_diag_graph
+ros2 node info /map/lanelet2_map_loader
+ros2 node info /map/pointcloud_map_loader222
+
+ros2 有自己的诊断模块
 
 autoware_devel/src/universe/autoware_universe/simulator/autoware_fault_injection/src/fault_injection_node/fault_injection_node.cpp：
 订阅
@@ -36,19 +52,125 @@ autoware_devel/src/universe/autoware_universe/simulator/autoware_fault_injection
 1、
 autoware_devel/src/core/autoware_core/map/autoware_map_loader/script/map_hash_generator
 
-    self.pub = self.create_publisher(MapHash, "/api/autoware/get/map/info/hash", qos_profile) # 发布地图
+    self.pub = self.create_publisher(MapHash, "/api/autoware/get/map/info/hash", qos_profile) # 发布地图哈希值
     self.pub.publish(msg)
 
     self.srv = self.create_service(
-        GetTextFile, "/api/autoware/get/map/lanelet/xml", self.on_get_lanelet_xml # 服务端返回道路线
+        GetTextFile, "/api/autoware/get/map/lanelet/xml", self.on_get_lanelet_xml # 服务端返回道路线哈希值
     )  # noqa: E501
 
 2、
 autoware_devel/src/core/autoware_core/map/autoware_map_projection_loader/src/map_projection_loader.cpp
-  // Publish the message 地图投影信息和缩放因子
+  // 应该只发布一次，Publish the message，"/map/map_projector_info"， 地图投影信息和缩放因子
   publisher_ = this->create_publisher<MapProjectorInfo::Message>(
     MapProjectorInfo::name, autoware::component_interface_specs::get_qos<MapProjectorInfo>());
-  publisher_->publish(msg); //"/map/map_projector_info"
+  publisher_->publish(msg); 
 
-git config --global user.name "erge"
-git config --global user.email "2822936659@qq.com"
+3、
+autoware_devel/src/core/autoware_core/map/autoware_map_loader/src/pointcloud_map_loader/pointcloud_map_loader_node.cpp
+    //发布点云地图.pcd文件
+    std::string publisher_name = "output/pointcloud_map";
+    pcd.header.frame_id = "map";
+    pub_pointcloud_map_->publish(pcd);
+
+    // 获取点云服务器，根据位置获取对应的点云地图和该地图范围
+    get_partial_pcd_maps_service_ = node->create_service<GetPartialPointCloudMap>(
+    "service/get_partial_pcd_map",
+    std::bind(
+      &PartialMapLoaderModule::on_service_get_partial_point_cloud_map, this, std::placeholders::_1,
+      std::placeholders::_2));
+
+    //当自动驾驶车辆从一个区域移动到另一个区域时,车辆已缓存当前区域的地图块（cached_ids）;需要查询新区域的地图数据（area_info）;系统计算出差分更新：哪些地图块需要新增，哪些需要删除;客户端根据差分结果更新本地缓存，暂时存在疑问
+    get_differential_pcd_maps_service_ = node->create_service<GetDifferentialPointCloudMap>(
+    "service/get_differential_pcd_map",
+    std::bind(
+      &DifferentialMapLoaderModule::on_service_get_differential_point_cloud_map, this,
+      std::placeholders::_1, std::placeholders::_2));
+
+4、
+autoware_devel/src/core/autoware_core/map/autoware_map_loader/src/lanelet2_map_loader/lanelet2_map_loader_node.cpp
+
+// 订阅"/map/map_projector_info"
+  sub_map_projector_info_ = this->create_subscription<MapProjectorInfo::Message>(
+    MapProjectorInfo::name, autoware::component_interface_specs::get_qos<MapProjectorInfo>(),
+    [this](const MapProjectorInfo::Message::ConstSharedPtr msg) { on_map_projector_info(msg); });
+    //发布车道线地图，"/map/vector_map"，包含地图和文件路径、时间
+    pub_map_bin_ =
+    create_publisher<VectorMap::Message>(VectorMap::name, rclcpp::QoS{1}.transient_local());
+  pub_map_bin_->publish(map_bin_msg);
+
+5、
+autoware_devel/src/core/autoware_core/map/autoware_lanelet2_map_visualizer/src/lanelet2_map_visualization_node.cpp
+
+// 订阅4发布的<remap from="input/lanelet2_map" to="vector_map"/>
+  sub_map_bin_ = this->create_subscription<autoware_map_msgs::msg::LaneletMapBin>(
+    "input/lanelet2_map", rclcpp::QoS{1}.transient_local(),
+    std::bind(&Lanelet2MapVisualizationNode::on_map_bin, this, _1));
+
+//整理数据发布到rviz，<remap from="output/lanelet2_map_marker" to="vector_map_marker"/>
+  pub_marker_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+    "output/lanelet2_map_marker", rclcpp::QoS{1}.transient_local());
+
+6、
+autoware_devel/src/universe/autoware_universe/map/autoware_map_tf_generator/src/vector_map_tf_generator_node.cpp
+// 订阅4发布的<remap from="input/lanelet2_map" to="vector_map"/>，计算地图中心坐标，发布地图TF，map_frame: map与viewer_frame: viewer的坐标关系
+
+    sub_ = create_subscription<autoware_map_msgs::msg::LaneletMapBin>(
+      "vector_map", rclcpp::QoS{1}.transient_local(),
+      std::bind(&VectorMapTFGeneratorNode::on_vector_map, this, std::placeholders::_1));
+
+sensing
+7、
+autoware_devel/src/launcher/autoware_launch/sensor_kit/sample_sensor_kit_launch/common_sensor_launch/launch/nebula_node_container.launch.py
+
+node1: glog_component
+node2: nebula_node
+  # 接收激光原始数据，转为点云数据，如果有人订阅则发布点云数据
+  #       nebula_points_pub_ =
+  #     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("velodyne_points", pointcloud_qos);，("velodyne_points", "pointcloud_raw_ex"),
+  #   aw_points_base_pub_ =
+  #     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("aw_points", pointcloud_qos);
+  #   aw_points_ex_pub_ =
+  #     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("aw_points_ex", pointcloud_qos);
+
+node3:autoware::pointcloud_preprocessor::CropBoxFilterComponent
+
+参数变化监控：
+在节点中使用 declare_parameter 时，ROS 2 参数服务注册了这些参数名，一旦声明，这些参数就成为了节点的可监控参数，这行代码启用了参数变更监控机制。一旦设置了回调函数：
+所有通过 declare_parameter 声明的参数都会被监控。当任何参数发生变化时，都会触发回调函数。
+更新裁剪框参数：
+set_param_res_ = this->add_on_set_parameters_callback(
+  std::bind(&CropBoxFilterComponent::param_callback, this, _1));
+
+下面这个发布没使用到
+    crop_box_polygon_pub_ = this->create_publisher<geometry_msgs::msg::PolygonStamped>(
+      "~/crop_box_polygon", 10, pub_options);
+
+node4:autoware::pointcloud_preprocessor::CropBoxFilterComponent
+原始点云数据 (pointcloud_raw_ex)
+        ↓
+[ crop_box_filter_self ] 裁剪车辆本体
+        ↓
+self_cropped/pointcloud_ex (已移除车辆本体)
+        ↓
+[ crop_box_filter_mirror ] 裁剪后视镜区域
+        ↓
+mirror_cropped/pointcloud_ex (已移除车辆本体和后视镜)
+通过两次裁剪，最终得到干净的、只包含周围环境的点云数据
+
+node5：autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/distortion_corrector/distortion_corrector_node.cpp
+
+发布：
+    undistorted_pointcloud_pub_ = this->create_publisher<PointCloud2>(
+      "~/output/pointcloud", rclcpp::SensorDataQoS(), pub_options);
+
+订阅：
+  twist_sub_ = autoware_utils::InterProcessPollingSubscriber<
+    geometry_msgs::msg::TwistWithCovarianceStamped, autoware_utils::polling_policy::All>::
+    create_subscription(this, "~/input/twist", rclcpp::QoS(TWIST_QUEUE_SIZE));
+  imu_sub_ = autoware_utils::InterProcessPollingSubscriber<
+    sensor_msgs::msg::Imu, autoware_utils::polling_policy::All>::
+    create_subscription(this, "~/input/imu", rclcpp::QoS(TWIST_QUEUE_SIZE));
+  pointcloud_sub_ = this->create_subscription<PointCloud2>(
+    "~/input/pointcloud", rclcpp::SensorDataQoS(),
+    std::bind(&DistortionCorrectorComponent::pointcloud_callback, this, std::placeholders::_1));

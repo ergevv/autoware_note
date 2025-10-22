@@ -20,6 +20,7 @@
   </group>
 
   <!-- Pointcloud container -->
+  <!-- 使用glog 打印日志 -->
   <group if="$(var launch_pointcloud_container)">
     <include file="$(find-pkg-share autoware_launch)/launch/pointcloud_container.launch.py">
       <arg name="use_multithread" value="true"/>

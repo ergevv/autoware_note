@@ -109,6 +109,14 @@ def launch_setup(context, *args, **kwargs):
         )
     )
 
+
+# 接收激光原始数据，转为点云数据，如果有人订阅则发布点云数据
+#       nebula_points_pub_ =
+#     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("velodyne_points", pointcloud_qos);，("velodyne_points", "pointcloud_raw_ex"),
+#   aw_points_base_pub_ =
+#     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("aw_points", pointcloud_qos);
+#   aw_points_ex_pub_ =
+#     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("aw_points_ex", pointcloud_qos);
     nodes.append(
         ComposableNode(
             package="nebula_ros",
@@ -162,6 +170,8 @@ def launch_setup(context, *args, **kwargs):
     cropbox_parameters["min_z"] = vehicle_info["min_height_offset"]
     cropbox_parameters["max_z"] = vehicle_info["max_height_offset"]
 
+
+# 更新裁剪框参数：
     nodes.append(
         ComposableNode(
             package="autoware_pointcloud_preprocessor",
@@ -245,7 +255,7 @@ def launch_setup(context, *args, **kwargs):
 
     return [container]
 
-
+# 在ROS 2的launch系统中，当加载一个.py启动文件时，默认会执行该文件中的 generate_launch_description() 函数
 def generate_launch_description():
     launch_arguments = []
 
@@ -317,7 +327,7 @@ def generate_launch_description():
     )
 
     return launch.LaunchDescription(
-        launch_arguments
-        + [set_container_executable, set_container_mt_executable]
-        + [OpaqueFunction(function=launch_setup)]
+        launch_arguments #传递参数
+        + [set_container_executable, set_container_mt_executable] # 设置容器执行器，单线程或多线程
+        + [OpaqueFunction(function=launch_setup)] # 设置启动函数，在合适的时机调用launch_setup
     )

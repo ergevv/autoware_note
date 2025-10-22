@@ -79,6 +79,7 @@ CropBoxFilterComponent::CropBoxFilterComponent(const rclcpp::NodeOptions & optio
   }
 
   // set initial parameters
+  // 获取参数
   {
     auto & p = param_;
     p.min_x = declare_parameter<double>("min_x");
@@ -107,6 +108,9 @@ CropBoxFilterComponent::CropBoxFilterComponent(const rclcpp::NodeOptions & optio
 
   // set parameter service callback
   {
+    //     这行代码启用了参数变更监控机制。一旦设置了回调函数：
+    // 所有通过 declare_parameter 声明的参数都会被监控
+    // 当任何参数发生变化时，都会触发回调函数
     using std::placeholders::_1;
     set_param_res_ = this->add_on_set_parameters_callback(
       std::bind(&CropBoxFilterComponent::param_callback, this, _1));
@@ -336,6 +340,7 @@ rcl_interfaces::msg::SetParametersResult CropBoxFilterComponent::param_callback(
     }
   }
 
+  // 告知ros参数更新完成
   rcl_interfaces::msg::SetParametersResult result;
   result.successful = true;
   result.reason = "success";

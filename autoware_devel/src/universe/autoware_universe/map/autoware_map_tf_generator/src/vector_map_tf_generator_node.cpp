@@ -33,8 +33,8 @@ class VectorMapTFGeneratorNode : public rclcpp::Node
 public:
   explicit VectorMapTFGeneratorNode(const rclcpp::NodeOptions & options)
   : Node("vector_map_tf_generator", options),
-    map_frame_(declare_parameter<std::string>("map_frame")),
-    viewer_frame_(declare_parameter<std::string>("viewer_frame"))
+    map_frame_(declare_parameter<std::string>("map_frame")),       // map_frame: map
+    viewer_frame_(declare_parameter<std::string>("viewer_frame"))  // viewer_frame: viewer
   {
     sub_ = create_subscription<autoware_map_msgs::msg::LaneletMapBin>(
       "vector_map", rclcpp::QoS{1}.transient_local(),
@@ -67,6 +67,7 @@ private:
       points_y.push_back(point_y);
       points_z.push_back(point_z);
     }
+    // 计算所有点的平均值，姿态为幺元
     const double coordinate_x =
       std::accumulate(points_x.begin(), points_x.end(), 0.0) / static_cast<double>(points_x.size());
     const double coordinate_y =

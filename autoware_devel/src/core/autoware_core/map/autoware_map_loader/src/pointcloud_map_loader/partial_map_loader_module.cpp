@@ -22,7 +22,7 @@ namespace autoware::map_loader
 {
 PartialMapLoaderModule::PartialMapLoaderModule(
   rclcpp::Node * node, std::map<std::string, PCDFileMetadata> pcd_file_metadata_dict)
-: logger_(node->get_logger()), all_pcd_file_metadata_dict_(std::move(pcd_file_metadata_dict))
+: logger_(node->get_logger()), all_pcd_file_metadata_dict_(std::move(pcd_file_metadata_dict))  //其实只有一份点云地图
 {
   get_partial_pcd_maps_service_ = node->create_service<GetPartialPointCloudMap>(
     "service/get_partial_pcd_map",
