@@ -109,8 +109,7 @@ def launch_setup(context, *args, **kwargs):
         )
     )
 
-
-# 接收激光原始数据，转为点云数据，如果有人订阅则发布点云数据
+    # 接收激光原始数据，转为点云数据，如果有人订阅则发布点云数据
 #       nebula_points_pub_ =
 #     parent_node->create_publisher<sensor_msgs::msg::PointCloud2>("velodyne_points", pointcloud_qos);，("velodyne_points", "pointcloud_raw_ex"),
 #   aw_points_base_pub_ =

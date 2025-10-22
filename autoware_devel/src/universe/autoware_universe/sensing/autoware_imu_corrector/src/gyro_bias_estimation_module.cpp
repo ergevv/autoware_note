@@ -82,12 +82,12 @@ void GyroBiasEstimationModule::update_bias(
     throw std::runtime_error("dt_pose or dt_gyro is zero");
   }
 
-  auto error_rpy = calculate_error_rpy(pose_list, gyro_list, geometry_msgs::msg::Vector3{});
-  error_rpy.x *= dt_pose / dt_gyro;
+  auto error_rpy = calculate_error_rpy(pose_list, gyro_list, geometry_msgs::msg::Vector3{});  //计算里程计和imu之间的角度差
+  error_rpy.x *= dt_pose / dt_gyro; //于姿态数据和陀螺仪数据的时间跨度可能不同（dt_pose 和 dt_gyro），需要对误差进行时间对齐调整，使误差与时间跨度成比例。这只是一个近似的计算，避免复杂的插值和时间对齐操作，正确的做法应该是在相同的时间求出角度在相减
   error_rpy.y *= dt_pose / dt_gyro;
   error_rpy.z *= dt_pose / dt_gyro;
 
-  gyro_bias_pair_.first.x += dt_pose * error_rpy.x;
+  gyro_bias_pair_.first.x += dt_pose * error_rpy.x; //误差加权
   gyro_bias_pair_.first.y += dt_pose * error_rpy.y;
   gyro_bias_pair_.first.z += dt_pose * error_rpy.z;
   gyro_bias_pair_.second.x += dt_pose * dt_pose;

@@ -43,7 +43,8 @@ void VehicleVelocityConverter::callback_velocity_report(
   // set twist with covariance msg from vehicle report msg
   geometry_msgs::msg::TwistWithCovarianceStamped twist_with_covariance_msg;
   twist_with_covariance_msg.header = msg->header;
-  twist_with_covariance_msg.twist.twist.linear.x = msg->longitudinal_velocity * speed_scale_factor_;
+  twist_with_covariance_msg.twist.twist.linear.x =
+    msg->longitudinal_velocity * speed_scale_factor_;  // 加个比例因子，适配各种车型
   twist_with_covariance_msg.twist.twist.linear.y = msg->lateral_velocity;
   twist_with_covariance_msg.twist.twist.angular.z = msg->heading_rate;
   twist_with_covariance_msg.twist.covariance[0 + 0 * 6] = stddev_vx_ * stddev_vx_;

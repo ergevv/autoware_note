@@ -1,0 +1,95 @@
+1、
+autoware_devel/src/universe/autoware_universe/sensing/autoware_imu_corrector/src/imu_corrector_core.cpp
+
+订阅imu数据，修正（零偏，包括安装精度和温度，但是随着时间的变化，这个值仍然会改变）后的imu数据和协方差矩阵，利用TF系统将数据从IMU坐标系转换到车辆基座坐标系（"base_link"），再发布出去。
+  <arg name="input_topic" default="imu_raw"/> "tamagawa/imu_raw"
+  <arg name="output_topic" default="imu_data"/>
+    <remap from="input" to="$(var input_topic)"/>
+    <remap from="output" to="$(var output_topic)"/>
+  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+    "input", rclcpp::QoS{1}, std::bind(&ImuCorrector::callback_imu, this, std::placeholders::_1));
+
+  imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("output", rclcpp::QoS{10});
+
+2、
+autoware_devel/src/universe/autoware_universe/sensing/autoware_imu_corrector/src/gyro_bias_estimator.cpp
+
+  <arg name="input_imu_raw" default="imu_raw"/>
+  <arg name="input_odom" default="odom"/>
+  <arg name="output_gyro_bias" default="gyro_bias"/>
+    <remap from="~/input/imu_raw" to="$(var input_imu_raw)"/>
+    <remap from="~/input/odom" to="$(var input_odom)"/>
+    <remap from="~/output/gyro_bias" to="$(var output_gyro_bias)"/>
+
+    订阅imu原始数据：
+      imu_sub_ = create_subscription<Imu>(
+    "~/input/imu_raw", rclcpp::SensorDataQoS(),
+    [this](const Imu::ConstSharedPtr msg) { callback_imu(msg); });
+
+    订阅里程计数据：
+      odom_sub_ = create_subscription<Odometry>(
+    "~/input/odom", rclcpp::SensorDataQoS(),
+    [this](const Odometry::ConstSharedPtr msg) { callback_odom(msg); });
+
+    发布角速度零偏
+      gyro_bias_pub_ = create_publisher<Vector3Stamped>("~/output/gyro_bias", rclcpp::SensorDataQoS());
+
+    创建定时器，每0.5秒执行一次，订阅的数据也是用在这里：
+      GyroBiasEstimator::timer_callback
+      获取里程计和imu转到车身下的角速度，使用里程计yaw角判断直线行走，计算两个传感器角速度的差值作为零偏，累积后求平均，转到imu坐标系下，通过gyro_bias_pub_发布出去。
+    
+    诊断信息更新器，每0.5秒执行一次：
+      GyroBiasEstimator::update_diagnostics
+      发布诊断信息。
+
+3、发布gnss信息，只选择 <!-- Ublox Driver -->或者<!-- Septentrio GNSS Driver -->
+    <group if="$(eval &quot;'$(var gnss_receiver)'=='ublox'&quot;)">
+      <node pkg="ublox_gps" name="ublox" exec="ublox_gps_node" if="$(var launch_driver)" respawn="true" respawn_delay="1.0">
+        <remap from="~/fix" to="~/nav_sat_fix"/>
+        <param from="$(find-pkg-share ublox_gps)/c94_f9p_rover.yaml"/>
+      </node>
+    </group>
+
+4、
+autoware_devel/src/core/autoware_core/sensing/autoware_gnss_poser/src/gnss_poser_node.cpp
+
+订阅之前的投影参数：
+  sub_map_projector_info_ = create_subscription<autoware_map_msgs::msg::MapProjectorInfo>(
+    "/map/map_projector_info", rclcpp::QoS{1}.transient_local(),
+    std::bind(&GNSSPoser::callback_map_projector_info, this, std::placeholders::_1));
+
+订阅GNSS数据，由3发布的，计算出他的位置，如果下面那个订阅autoware_orientation_sub_有方向，则使用它的，如果没有，则使用两次的位置计算出的方向，转到车身坐标，发布出去。所有数据都是这里发布出去的。
+nav_sat_fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+    "fix", rclcpp::QoS{1},
+    std::bind(&GNSSPoser::callback_nav_sat_fix, this, std::placeholders::_1));
+
+订阅 GNSS/INS 的方向信息，<arg name="input_topic_orientation" default="/autoware_orientation"/>
+  autoware_orientation_sub_ =
+    create_subscription<autoware_sensing_msgs::msg::GnssInsOrientationStamped>(
+      "autoware_orientation", rclcpp::QoS{1},
+      std::bind(&GNSSPoser::callback_gnss_ins_orientation_stamped, this, std::placeholders::_1));
+
+发布gnss的位姿
+  pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("gnss_pose", rclcpp::QoS{1});
+
+发布带协方差的位姿信息，协方差是自定义的值
+  pose_cov_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "gnss_pose_cov", rclcpp::QoS{1});
+
+发布gnss精度状态
+  fixed_pub_ =
+    create_publisher<autoware_internal_debug_msgs::msg::BoolStamped>("gnss_fixed", rclcpp::QoS{1});
+
+5、
+autoware_devel/src/core/autoware_core/sensing/autoware_vehicle_velocity_converter/src/vehicle_velocity_converter.cpp
+
+订阅车辆的纵向、横向速度和偏航角速度，
+<arg name="input_vehicle_velocity_topic" value="/vehicle/status/velocity_status"/>
+<arg name="output_twist_with_covariance" value="/sensing/vehicle_velocity_converter/twist_with_covariance"/>
+
+vehicle_report_sub_ = create_subscription<autoware_vehicle_msgs::msg::VelocityReport>(
+    "velocity_status", rclcpp::QoS{100},
+    std::bind(&VehicleVelocityConverter::callback_velocity_report, this, std::placeholders::_1));
+
+twist_with_covariance_pub_ = create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>(
+    "twist_with_covariance", rclcpp::QoS{10});
