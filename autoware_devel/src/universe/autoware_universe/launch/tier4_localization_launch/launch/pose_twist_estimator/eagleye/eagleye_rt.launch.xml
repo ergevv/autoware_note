@@ -11,7 +11,7 @@
 
   <group>
     <push-ros-namespace namespace="eagleye"/>
-
+<!-- topic_tools 属于 ROS 的核心工具包集合，将 Eagleye 内部计算得到的速度信息 (twist_with_covariance) 转发到 Autoware 系统统一的速度估计话题 (/localization/twist_estimator/twist_with_covariance) -->
     <group if="$(var use_eagleye_twist)">
       <node pkg="topic_tools" exec="relay" name="eagleye_output_twist_relay" args="twist_with_covariance $(var output_twist_with_cov_name)"/>
     </group>

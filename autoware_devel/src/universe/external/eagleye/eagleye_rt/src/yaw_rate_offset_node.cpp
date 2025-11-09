@@ -63,6 +63,7 @@ void yaw_rate_offset_stop_callback(const eagleye_msgs::msg::YawrateOffset::Const
   _yaw_rate_offset_stop = *msg;
 }
 
+// 确认收到有效航向角后才进行估计，初始值都未知的话，就没必要了，偏航率偏移估计需要初始航向参考。
 void heading_interpolate_callback(const eagleye_msgs::msg::Heading::ConstSharedPtr msg)
 {
   _heading_interpolate = *msg;
@@ -74,16 +75,20 @@ void heading_interpolate_callback(const eagleye_msgs::msg::Heading::ConstSharedP
 
 void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr msg)
 {
-  if (_is_first_heading == false) return;
-  if(_use_can_less_mode && !_velocity_status.status.enabled_status) return;
+  if (_is_first_heading == false)
+    return;
+  // CAN 控制器
+  if (_use_can_less_mode && !_velocity_status.status.enabled_status)
+    return;
 
   _imu = *msg;
   _yaw_rate_offset.header = msg->header;
-  yaw_rate_offset_estimate(_velocity,_yaw_rate_offset_stop,_heading_interpolate,_imu,_yaw_rate_offset_parameter, &_yaw_rate_offset_status, &_yaw_rate_offset);
+  yaw_rate_offset_estimate(_velocity, _yaw_rate_offset_stop, _heading_interpolate, _imu, _yaw_rate_offset_parameter, &_yaw_rate_offset_status, &_yaw_rate_offset);
 
   _yaw_rate_offset.status.is_abnormal = false;
-  if (!std::isfinite(_yaw_rate_offset_stop.yaw_rate_offset)) {
-    _yaw_rate_offset_stop.yaw_rate_offset =_previous_yaw_rate_offset;
+  if (!std::isfinite(_yaw_rate_offset_stop.yaw_rate_offset))
+  {
+    _yaw_rate_offset_stop.yaw_rate_offset = _previous_yaw_rate_offset;
     _yaw_rate_offset.status.is_abnormal = true;
     _yaw_rate_offset.status.error_code = eagleye_msgs::msg::Status::NAN_OR_INFINITE;
   }
@@ -96,7 +101,7 @@ void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr msg)
   _yaw_rate_offset.status.estimate_status = false;
 }
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   auto node = rclcpp::Node::make_shared("eagleye_yaw_rate_offset");
@@ -105,8 +110,8 @@ int main(int argc, char** argv)
   std::string subscribe_topic_name = "/subscribe_topic_name/invalid";
 
   std::string yaml_file;
-  node->declare_parameter("yaml_file",yaml_file);
-  node->get_parameter("yaml_file",yaml_file);
+  node->declare_parameter("yaml_file", yaml_file);
+  node->get_parameter("yaml_file", yaml_file);
   std::cout << "yaml_file: " << yaml_file << std::endl;
 
   if (argc > 2)
@@ -138,7 +143,7 @@ int main(int argc, char** argv)
         std::cout << "gnss_receiving_threshold " << _yaw_rate_offset_parameter.gnss_receiving_threshold << std::endl;
         std::cout << "outlier_threshold " << _yaw_rate_offset_parameter.outlier_threshold << std::endl;
       }
-      catch (YAML::Exception& e)
+      catch (YAML::Exception &e)
       {
         std::cerr << "\033[1;yaw_rate_offset_1st Node YAML Error: " << e.msg << "\033[0m" << std::endl;
         exit(3);
@@ -148,7 +153,7 @@ int main(int argc, char** argv)
     {
       publish_topic_name = "yaw_rate_offset_2nd";
       subscribe_topic_name = "heading_interpolate_2nd";
-      
+
       try
       {
         YAML::Node conf = YAML::LoadFile(yaml_file);
@@ -171,7 +176,7 @@ int main(int argc, char** argv)
         std::cout << "gnss_receiving_threshold " << _yaw_rate_offset_parameter.gnss_receiving_threshold << std::endl;
         std::cout << "outlier_threshold " << _yaw_rate_offset_parameter.outlier_threshold << std::endl;
       }
-      catch (YAML::Exception& e)
+      catch (YAML::Exception &e)
       {
         std::cerr << "\033[1;yaw_rate_offset_2nd Node YAML Error: " << e.msg << "\033[0m" << std::endl;
         exit(3);
@@ -190,14 +195,13 @@ int main(int argc, char** argv)
     rclcpp::shutdown();
   }
 
-  auto sub1 = node->create_subscription<geometry_msgs::msg::TwistStamped>("velocity", rclcpp::QoS(10), velocity_callback);  //ros::TransportHints().tcpNoDelay()
-  auto sub2 = node->create_subscription<eagleye_msgs::msg::YawrateOffset>("yaw_rate_offset_stop", rclcpp::QoS(10), yaw_rate_offset_stop_callback);  //ros::TransportHints().tcpNoDelay()
-  auto sub3 = node->create_subscription<eagleye_msgs::msg::Heading>(subscribe_topic_name, 1000, heading_interpolate_callback);  //ros::TransportHints().tcpNoDelay()
-  auto sub4 = node->create_subscription<sensor_msgs::msg::Imu>("imu/data_tf_converted", 1000, imu_callback);  //ros::TransportHints().tcpNoDelay()
+  auto sub1 = node->create_subscription<geometry_msgs::msg::TwistStamped>("velocity", rclcpp::QoS(10), velocity_callback);                         // ros::TransportHints().tcpNoDelay()
+  auto sub2 = node->create_subscription<eagleye_msgs::msg::YawrateOffset>("yaw_rate_offset_stop", rclcpp::QoS(10), yaw_rate_offset_stop_callback); // ros::TransportHints().tcpNoDelay()
+  auto sub3 = node->create_subscription<eagleye_msgs::msg::Heading>(subscribe_topic_name, 1000, heading_interpolate_callback);                     // ros::TransportHints().tcpNoDelay()
+  auto sub4 = node->create_subscription<sensor_msgs::msg::Imu>("imu/data_tf_converted", 1000, imu_callback);                                       // ros::TransportHints().tcpNoDelay()
   _pub = node->create_publisher<eagleye_msgs::msg::YawrateOffset>(publish_topic_name, rclcpp::QoS(10));
 
   rclcpp::spin(node);
-
 
   return 0;
 }

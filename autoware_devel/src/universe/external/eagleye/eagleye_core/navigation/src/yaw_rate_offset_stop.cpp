@@ -31,7 +31,7 @@
 #include "eagleye_coordinate/eagleye_coordinate.hpp"
 #include "eagleye_navigation/eagleye_navigation.hpp"
 
-void yaw_rate_offset_stop_estimate(const geometry_msgs::msg::TwistStamped velocity, const sensor_msgs::msg::Imu imu, const YawrateOffsetStopParameter yaw_rate_offset_stop_parameter, YawrateOffsetStopStatus* yaw_rate_offset_stop_status, eagleye_msgs::msg::YawrateOffset* yaw_rate_offset_stop)
+void yaw_rate_offset_stop_estimate(const geometry_msgs::msg::TwistStamped velocity, const sensor_msgs::msg::Imu imu, const YawrateOffsetStopParameter yaw_rate_offset_stop_parameter, YawrateOffsetStopStatus *yaw_rate_offset_stop_status, eagleye_msgs::msg::YawrateOffset *yaw_rate_offset_stop)
 {
 
   int i;
@@ -40,14 +40,16 @@ void yaw_rate_offset_stop_estimate(const geometry_msgs::msg::TwistStamped veloci
   std::size_t yaw_rate_buffer_length;
 
   double estimated_buffer_number = yaw_rate_offset_stop_parameter.imu_rate * yaw_rate_offset_stop_parameter.estimated_interval;
-  double estimated_time_buffer_number = estimated_buffer_number; //TODO rename
+  double estimated_time_buffer_number = estimated_buffer_number; // TODO rename
 
   // data buffer generate
   if (yaw_rate_offset_stop_status->estimate_start_status == false)
   {
     yaw_rate_offset_stop_status->yaw_rate_buffer.push_back(imu.angular_velocity.z);
   }
-  else if ( std::fabs(std::fabs(yaw_rate_offset_stop_status->yaw_rate_offset_stop_last) - std::fabs(imu.angular_velocity.z)) < yaw_rate_offset_stop_parameter.outlier_threshold && yaw_rate_offset_stop_status->estimate_start_status == true)
+
+  // 比较上一次估计的偏移量绝对值与当前IMU测量值绝对值的差值,当估计已经开始后，系统假定偏航角速度应该接近于之前估计的偏移量值（因为在车辆停止时真实偏航角速度为0）。如果当前测量值与预期值相差过大，可能是异常数据或车辆开始移动
+  else if (std::fabs(std::fabs(yaw_rate_offset_stop_status->yaw_rate_offset_stop_last) - std::fabs(imu.angular_velocity.z)) < yaw_rate_offset_stop_parameter.outlier_threshold && yaw_rate_offset_stop_status->estimate_start_status == true)
   {
     yaw_rate_offset_stop_status->yaw_rate_buffer.push_back(imu.angular_velocity.z);
   }
@@ -59,6 +61,7 @@ void yaw_rate_offset_stop_estimate(const geometry_msgs::msg::TwistStamped veloci
     yaw_rate_offset_stop_status->yaw_rate_buffer.erase(yaw_rate_offset_stop_status->yaw_rate_buffer.begin());
   }
 
+  // 停止状态判断
   if (velocity.twist.linear.x < yaw_rate_offset_stop_parameter.stop_judgment_threshold)
   {
     ++yaw_rate_offset_stop_status->stop_count;
@@ -74,7 +77,7 @@ void yaw_rate_offset_stop_estimate(const geometry_msgs::msg::TwistStamped veloci
     tmp = 0.0;
     for (i = 0; i < estimated_buffer_number; i++)
     {
-      tmp += yaw_rate_offset_stop_status->yaw_rate_buffer[i];
+      tmp += yaw_rate_offset_stop_status->yaw_rate_buffer[i]; // 累计z轴角速度
     }
     yaw_rate_offset_stop->yaw_rate_offset = -1 * tmp / estimated_buffer_number;
     yaw_rate_offset_stop->status.enabled_status = true;

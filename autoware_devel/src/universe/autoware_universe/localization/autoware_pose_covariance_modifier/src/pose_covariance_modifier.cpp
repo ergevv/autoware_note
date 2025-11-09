@@ -91,7 +91,8 @@ void PoseCovarianceModifierNode::callback_gnss_pose_with_cov(
     (std::sqrt(msg_pose_with_cov_in->pose.covariance[X_POS_IDX_]) +
      std::sqrt(msg_pose_with_cov_in->pose.covariance[Y_POS_IDX_])) /
     2;
-
+// 如果GNSS质量足够好，使用GNSS或GNSS+NDT组合
+// 如果GNSS质量差（如高方差），则选择仅使用NDT
   pose_source_ =
     pose_source_from_gnss_stddev(gnss_pose_yaw_stddev_deg, gnss_pose_stddev_z, gnss_pose_stddev_xy);
   publish_pose_type(pose_source_);

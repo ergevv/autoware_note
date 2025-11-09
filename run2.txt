@@ -93,3 +93,203 @@ vehicle_report_sub_ = create_subscription<autoware_vehicle_msgs::msg::VelocityRe
 
 twist_with_covariance_pub_ = create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>(
     "twist_with_covariance", rclcpp::QoS{10});
+
+
+Localization:
+1、
+autoware_devel/src/core/autoware_core/localization/autoware_ndt_scan_matcher/src/ndt_scan_matcher_core.cpp：
+    <remap from="points_raw" to="$(var input_pointcloud)"/>
+    <remap from="ekf_pose_with_covariance" to="$(var input_initial_pose_topic)"/>
+    <remap from="regularization_pose_with_covariance" to="$(var input_regularization_pose_topic)"/>
+    <remap from="trigger_node_srv" to="$(var input_service_trigger_node)"/>
+
+    <remap from="ndt_pose" to="$(var output_pose_topic)"/>
+    <remap from="ndt_pose_with_covariance" to="$(var output_pose_with_covariance_topic)"/>
+
+    <remap from="pcd_loader_service" to="$(var client_map_loader)"/>
+
+
+订阅
+//持续订阅位姿，initial_pose_buffer_、latest_ekf_position_
+  initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "ekf_pose_with_covariance", 100,
+    std::bind(&NDTScanMatcher::callback_initial_pose, this, std::placeholders::_1),
+    initial_pose_sub_opt);
+
+  // 持续订阅传感器点云数据与地图匹配得到位姿，并评估匹配效果，并发送位姿
+  sensor_points_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+    "points_raw", rclcpp::SensorDataQoS().keep_last(1),
+    std::bind(&NDTScanMatcher::callback_sensor_points, this, std::placeholders::_1),
+    sensor_sub_opt);
+
+    //记录位姿和协方差，然后发布是否对齐的诊断信息
+    service_ =
+    this->create_service<autoware_internal_localization_msgs::srv::PoseWithCovarianceStamped>(
+      "ndt_align_srv",
+      std::bind(
+        &NDTScanMatcher::service_ndt_align, this, std::placeholders::_1, std::placeholders::_2),
+      rclcpp::ServicesQoS().get_rmw_qos_profile(), sensor_callback_group);
+
+  // 用于控制NDT扫描匹配节点的激活状态。它接收一个布尔值请求，用来启用或禁用节点的主要功能。
+  service_trigger_node_ = this->create_service<std_srvs::srv::SetBool>(
+    "trigger_node_srv",
+    std::bind(
+      &NDTScanMatcher::service_trigger_node, this, std::placeholders::_1, std::placeholders::_2),
+
+  //将订阅的数据位姿和协方差放入regularization_pose_buffer_，点云匹配使用正则化时候使用
+  regularization_pose_sub_ =
+  this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "regularization_pose_with_covariance", 10,
+    std::bind(&NDTScanMatcher::callback_regularization_pose, this, std::placeholders::_1),
+    initial_pose_sub_opt);
+
+周期性定时器：当前距离与上次更新距离超过阈值，就更新地图，输入源点云（待匹配），根据位置加载地图和去除旧数据
+  map_update_timer_ = rclcpp::create_timer(
+    this, this->get_clock(), period_ns, std::bind(&NDTScanMatcher::callback_timer, this),
+    timer_callback_group_); 
+
+发送：
+//发布定位结果的TF变换
+ publish_tf(sensor_ros_time, result_pose_msg);
+ //将NDT匹配过程中迭代的位姿以箭头标记形式可视化
+ publish_marker(sensor_ros_time, transformation_msg_array);
+
+ //将传感器点云变换到地图坐标系,发布对齐后的点云数据
+  sensor_aligned_pose_pub_ =
+    this->create_publisher<sensor_msgs::msg::PointCloud2>("points_aligned", 10);
+  no_ground_points_aligned_pose_pub_ =
+    this->create_publisher<sensor_msgs::msg::PointCloud2>("points_aligned_no_ground", 10);
+    //发布带协方差的位姿
+  ndt_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("ndt_pose", 10);
+  ndt_pose_with_covariance_pub_ =
+    this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "ndt_pose_with_covariance", 10);
+
+  //发送未匹配时候的位姿
+  initial_pose_with_covariance_pub_ =
+    this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "initial_pose_with_covariance", 10);
+  multi_ndt_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("multi_ndt_pose", 10);
+  multi_initial_pose_pub_ =
+    this->create_publisher<geometry_msgs::msg::PoseArray>("multi_initial_pose", 10);
+  //发送点云时间和和处理时间
+  exe_time_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>("exe_time_ms", 10);
+  //发布变换概率
+  transform_probability_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "transform_probability", 10);
+      //最近体素变换似然评分
+  nearest_voxel_transformation_likelihood_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "nearest_voxel_transformation_likelihood", 10);
+  //发布体素评分点云（距离体素中心的远近：越近分数越高）
+  voxel_score_points_pub_ =
+    this->create_publisher<sensor_msgs::msg::PointCloud2>("voxel_score_points", 10);
+  //去除地面点后的变换概率匹配评分（比雷达高）
+  no_ground_transform_probability_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "no_ground_transform_probability", 10);
+  //去除地面点后的最近体素变换似然匹配评分
+  no_ground_nearest_voxel_transformation_likelihood_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "no_ground_nearest_voxel_transformation_likelihood", 10);
+      //发布迭代次数
+  iteration_num_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Int32Stamped>("iteration_num", 10);
+  initial_to_result_relative_pose_pub_ =
+    this->create_publisher<geometry_msgs::msg::PoseStamped>("initial_to_result_relative_pose", 10);
+    //发布初始猜测位姿与最终结果之间的相对变换
+  initial_to_result_distance_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "initial_to_result_distance", 10);
+  initial_to_result_distance_old_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "initial_to_result_distance_old", 10);
+  initial_to_result_distance_new_pub_ =
+    this->create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "initial_to_result_distance_new", 10);
+  ndt_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("ndt_marker", 10);
+  ndt_monte_carlo_initial_pose_marker_pub_ =
+    this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "monte_carlo_initial_pose_marker", 10);
+
+2、autoware_devel/src/universe/autoware_universe/localization/autoware_pose_covariance_modifier/src/pose_covariance_modifier.cpp：
+    <remap from="input_gnss_pose_with_cov_topic" to="$(var autoware_pose_covariance_modifier/input_gnss_pose_with_cov_topic)"/>
+    <remap from="input_ndt_pose_with_cov_topic" to="$(var autoware_pose_covariance_modifier/input_ndt_pose_with_cov_topic)"/>
+    <remap from="output_pose_with_covariance_topic" to="$(var autoware_pose_covariance_modifier/output_pose_with_covariance_topic)"/>
+
+//发布：
+//发布GNSS/NDT位姿和协方差
+  pub_pose_with_covariance_stamped_ =
+    this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "output_pose_with_covariance_topic", 10);
+// 发布GNSS、NDT的融合策略
+  pub_str_pose_source_ = this->create_publisher<std_msgs::msg::String>("~/selected_pose_type", 10);
+
+  pub_double_ndt_position_stddev_ =
+  this->create_publisher<std_msgs::msg::Float64>("~/debug/ndt_position_stddev", 10);
+
+  pub_double_gnss_position_stddev_ =
+    this->create_publisher<std_msgs::msg::Float64>("~/debug/gnss_position_stddev", 10);
+
+//订阅：
+//订阅GNSS位姿和协方差，选择GNSS、NDT的融合策略
+  sub_gnss_pose_with_cov_ =
+    this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "input_gnss_pose_with_cov_topic", 10,
+      std::bind(
+        &PoseCovarianceModifierNode::callback_gnss_pose_with_cov, this, std::placeholders::_1));
+
+//接收ndt位姿和协方差，融合GNSS重新计算协方差（将GNSS协方差映射到合适范围）
+  sub_ndt_pose_with_cov_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "input_ndt_pose_with_cov_topic", 10,
+    std::bind(
+      &PoseCovarianceModifierNode::callback_ndt_pose_with_cov, this, std::placeholders::_1));
+
+视觉定位：autoware_devel/src/universe/autoware_universe/launch/tier4_localization_launch/launch/pose_twist_estimator/yabloc.launch.xml（暂时没看）
+3、autoware_devel/src/universe/autoware_universe/localization/yabloc/yabloc_pose_initializer/src/camera/camera_pose_initializer_core.cpp
+    <remap from="~/input/camera_info" to="/localization/pose_estimator/yabloc/image_processing/undistorted/camera_info"/>
+    <remap from="~/input/image_raw" to="/localization/pose_estimator/yabloc/image_processing/undistorted/image_raw"/>
+    <remap from="~/input/vector_map" to="/map/vector_map"/>
+    <remap from="~/debug/init_candidates" to="init_candidates"/>
+    <remap from="~/yabloc_align_srv" to="/localization/pose_estimator/yabloc/initializer/yabloc_align_srv"/>
+
+//订阅：
+  sub_map_ = create_subscription<LaneletMapBin>("~/input/vector_map", map_qos, on_map);
+
+  //将订阅的图像赋值到latest_image_msg_
+  sub_image_ = create_subscription<Image>("~/input/image_raw", 10, on_image);
+  align_server_ = create_service<RequestPoseAlignment>("~/yabloc_align_srv", on_service);
+
+Gyro Odometer Launch (as twist estimator):
+4、autoware_devel/src/core/autoware_core/localization/autoware_gyro_odometer/src/gyro_odometer_core.cpp
+
+融合imu的角速度和twist的x轴线性加速度，yaw角速度或者x轴加速度较小，则认为静止，发布的twist全为0
+  vehicle_twist_sub_ = create_subscription<geometry_msgs::msg::TwistWithCovarianceStamped>(
+    "vehicle/twist_with_covariance", rclcpp::QoS{100},
+    std::bind(&GyroOdometerNode::callback_vehicle_twist, this, std::placeholders::_1));
+
+  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+    "imu", rclcpp::QoS{100},
+    std::bind(&GyroOdometerNode::callback_imu, this, std::placeholders::_1));
+
+  twist_raw_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("twist_raw", rclcpp::QoS{10});
+  twist_with_covariance_raw_pub_ = create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>(
+    "twist_with_covariance_raw", rclcpp::QoS{10});
+// 
+  twist_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("twist", rclcpp::QoS{10});
+  twist_with_covariance_pub_ = create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>(
+    "twist_with_covariance", rclcpp::QoS{10});
+
+Eagleye：日本名古屋大学 Meguro Lab（目黑研究室）开发的开源项目，利用 GNSS（全球导航卫星系统）与 IMU（惯性测量单元）等传感器数据，实现高精度、鲁棒的车辆/机器人位姿（位置与姿态）估计。
+5、
+（1）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/twist_relay.cpp 转发twist数据，带协方差则去除协方差
+
+（2）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/tf_converted_imu.cpp 将imu数据转到车身坐标系下发布出去，根据配置参数决定是否反转角速度Z轴的符号。
+
+（3）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/velocity_scale_factor_node.cpp 速度比例因子（Velocity Scale Factor）用于校正车辆x轴速度传感器（如车轮编码器）的系统性误差。由于轮胎磨损、气压变化、制造公差等因素，实际车速与传感器测量值之间可能存在固定比例偏差，该节点通过GNSS数据来估计并校正这一比例因子。速度比例因子 = GNSS速度 / 传感器速度，多个比例因子取中位值。发布校正后的速度（_correction_velocity）；发布速度比例因子状态和数值（_velocity_scale_factor）
+
+（4）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/yaw_rate_offset_stop_node.cpp：根据静止状态下，估计imu在z轴的角速度偏移量。并发布出去。
+
+（5）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/yaw_rate_offset_node.cpp

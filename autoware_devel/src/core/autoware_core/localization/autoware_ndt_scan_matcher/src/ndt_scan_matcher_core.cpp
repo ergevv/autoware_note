@@ -96,6 +96,7 @@ NDTScanMatcher::NDTScanMatcher(const rclcpp::NodeOptions & options)
   is_activated_(false),
   param_(this)
 {
+  // MutuallyExclusive（互斥） 意味着同一组内的回调不能并发执行，确保线程安全。
   timer_callback_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   rclcpp::CallbackGroup::SharedPtr initial_pose_callback_group =
     this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -112,7 +113,7 @@ NDTScanMatcher::NDTScanMatcher(const rclcpp::NodeOptions & options)
     std::chrono::duration<double>(map_update_dt));
   map_update_timer_ = rclcpp::create_timer(
     this, this->get_clock(), period_ns, std::bind(&NDTScanMatcher::callback_timer, this),
-    timer_callback_group_);
+    timer_callback_group_); //周期性运行callback_timer
   initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
     "ekf_pose_with_covariance", 100,
     std::bind(&NDTScanMatcher::callback_initial_pose, this, std::placeholders::_1),
@@ -232,7 +233,7 @@ void NDTScanMatcher::callback_timer()
 
   map_update_module_->callback_timer(is_activated_, latest_ekf_position_, diagnostics_map_update_);
 
-  diagnostics_map_update_->publish(ros_time_now);
+  diagnostics_map_update_->publish(ros_time_now); //发布地图更新的诊断信息到 /diagnostics 主题，供监控和调试使用
 }
 
 void NDTScanMatcher::callback_initial_pose(
@@ -448,11 +449,11 @@ bool NDTScanMatcher::callback_sensor_points_main(
 
   // if regularization is enabled and available, set pose to NDT for regularization
   if (param_.ndt_regularization_enable) {
-    add_regularization_pose(sensor_ros_time);
+    add_regularization_pose(sensor_ros_time);  //正则化是是了协方差矩阵可逆
   }
 
   // Warn if the lidar has gone out of the map range
-  if (map_update_module_->out_of_map_range(
+  if (map_update_module_->out_of_map_range( //跟上次更新的位置作比较
         interpolation_result.interpolated_pose.pose.pose.position)) {
     std::stringstream msg;
 
@@ -482,7 +483,7 @@ bool NDTScanMatcher::callback_sensor_points_main(
   const pclomp::NdtResult ndt_result = ndt_ptr_->getResult();
 
   const geometry_msgs::msg::Pose result_pose_msg = matrix4f_to_pose(ndt_result.pose);
-  std::vector<geometry_msgs::msg::Pose> transformation_msg_array;
+  std::vector<geometry_msgs::msg::Pose> transformation_msg_array; //迭代过程中的所有位姿
   for (const auto & pose_matrix : ndt_result.transformation_array) {
     geometry_msgs::msg::Pose pose_ros = matrix4f_to_pose(pose_matrix);
     transformation_msg_array.push_back(pose_ros);
@@ -538,6 +539,7 @@ bool NDTScanMatcher::callback_sensor_points_main(
 
   // check score diff
   const std::vector<float> & tp_array = ndt_result.transform_probability_array;
+  //收敛了也继续计算，所以计算值等于迭代次数+1？跟前面矛盾
   if (static_cast<int>(tp_array.size()) != ndt_result.iteration_num + 1) {
     // only publish warning to /diagnostics, not skip publishing pose
     std::stringstream message;
@@ -981,6 +983,7 @@ void NDTScanMatcher::service_ndt_align(
 
   diagnostics_ndt_align_->add_key_value("service_call_time_stamp", ros_time_now.nanoseconds());
 
+  //返回res记录位姿和协方差
   service_ndt_align_main(req, res);
 
   // check is_succeed_service
@@ -996,11 +999,14 @@ void NDTScanMatcher::service_ndt_align(
   diagnostics_ndt_align_->publish(ros_time_now);
 }
 
+//接收一个带有协方差的姿态估计作为初始猜测
 void NDTScanMatcher::service_ndt_align_main(
   const autoware_internal_localization_msgs::srv::PoseWithCovarianceStamped::Request::SharedPtr req,
   autoware_internal_localization_msgs::srv::PoseWithCovarianceStamped::Response::SharedPtr res)
 {
   // get TF from pose_frame to map_frame
+//   target_frame：目标坐标系（地图坐标系）
+// source_frame：源坐标系（请求中姿态的坐标系）
   const std::string & target_frame = param_.frame.map_frame;
   const std::string & source_frame = req->pose_with_covariance.header.frame_id;
 

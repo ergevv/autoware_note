@@ -55,11 +55,13 @@ double _saved_velocity_scale_factor = 1.0;
 double _previous_velocity_scale_factor = 1.0;
 double _th_velocity_scale_factor_percent = 20;
 
+// rtk精度更高
 void rtklib_nav_callback(const rtklib_msgs::msg::RtklibNav::ConstSharedPtr msg)
 {
   _rtklib_nav = *msg;
 }
 
+// 判断车辆是否在运动
 void velocity_callback(const geometry_msgs::msg::TwistStamped::ConstSharedPtr msg)
 {
   _velocity = *msg;
@@ -86,6 +88,7 @@ void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr msg)
   _correction_velocity.header = msg->header;
   _correction_velocity.header.frame_id = "base_link";
 
+  //没有运动时，直接输出初始速度比例因子
   if (_is_first_move == false)
   {
     _velocity_scale_factor.scale_factor = initial_velocity_scale_factor;
@@ -97,17 +100,18 @@ void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr msg)
 
   if (_use_gnss_mode == "rtklib" || _use_gnss_mode == "RTKLIB") // use RTKLIB mode
   {
-    velocity_scale_factor_estimate(_rtklib_nav,_velocity,_velocity_scale_factor_parameter,
-      &_velocity_scale_factor_status,&_correction_velocity,&_velocity_scale_factor);
+    velocity_scale_factor_estimate(_rtklib_nav, _velocity, _velocity_scale_factor_parameter,
+                                   &_velocity_scale_factor_status, &_correction_velocity, &_velocity_scale_factor);
   }
   else if (_use_gnss_mode == "nmea" || _use_gnss_mode == "NMEA") // use NMEA mode
   {
-    velocity_scale_factor_estimate(_nmea_rmc,_velocity,_velocity_scale_factor_parameter,
-      &_velocity_scale_factor_status,&_correction_velocity,&_velocity_scale_factor);
+    velocity_scale_factor_estimate(_nmea_rmc, _velocity, _velocity_scale_factor_parameter,
+                                   &_velocity_scale_factor_status, &_correction_velocity, &_velocity_scale_factor);
   }
 
   _velocity_scale_factor.status.is_abnormal = false;
-  if (!std::isfinite(_velocity_scale_factor.scale_factor)) {
+  if (!std::isfinite(_velocity_scale_factor.scale_factor))
+  {
     _correction_velocity.twist.linear.x = _velocity.twist.linear.x * _previous_velocity_scale_factor;
     _velocity_scale_factor.scale_factor = _previous_velocity_scale_factor;
     _velocity_scale_factor.status.is_abnormal = true;
@@ -143,19 +147,19 @@ void load_velocity_scale_factor(std::string txt_path)
     std::string row;
     while (getline(ifs, row))
     {
-      if(count == 1)
+      if (count == 1)
       {
         _saved_vsf_estimater_number = std::stod(row);
-        std::cout<< "saved_vsf_estimater_number " << _saved_vsf_estimater_number << std::endl;
+        std::cout << "saved_vsf_estimater_number " << _saved_vsf_estimater_number << std::endl;
       }
-      if(count == 3)
+      if (count == 3)
       {
         _saved_velocity_scale_factor = std::stod(row);
         _velocity_scale_factor_status.estimate_start_status = true;
         _velocity_scale_factor_status.velocity_scale_factor_last = _saved_velocity_scale_factor;
         _velocity_scale_factor.status.enabled_status = true;
         _velocity_scale_factor.scale_factor = _saved_velocity_scale_factor;
-        std::cout<< "saved_velocity_scale_factor " << _saved_velocity_scale_factor << std::endl;
+        std::cout << "saved_velocity_scale_factor " << _saved_velocity_scale_factor << std::endl;
       }
       count++;
     }
@@ -163,9 +167,10 @@ void load_velocity_scale_factor(std::string txt_path)
   ifs.close();
 }
 
+// 定期保存速度比例因子的估计结果到文件中
 void on_timer()
 {
-  if(!_velocity_scale_factor.status.enabled_status && _saved_vsf_estimater_number >= _velocity_scale_factor_status.estimated_number)
+  if (!_velocity_scale_factor.status.enabled_status && _saved_vsf_estimater_number >= _velocity_scale_factor_status.estimated_number)
   {
     std::ofstream csv_file(_velocity_scale_factor_save_str);
     return;
@@ -187,7 +192,7 @@ void on_timer()
   return;
 }
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   auto node = rclcpp::Node::make_shared("eagleye_velocity_scale_factor");
@@ -200,8 +205,8 @@ int main(int argc, char** argv)
   std::string subscribe_rmc_topic_name = "gnss/rmc";
 
   std::string yaml_file;
-  node->declare_parameter("yaml_file",yaml_file);
-  node->get_parameter("yaml_file",yaml_file);
+  node->declare_parameter("yaml_file", yaml_file);
+  node->get_parameter("yaml_file", yaml_file);
   std::cout << "yaml_file: " << yaml_file << std::endl;
 
   try
@@ -218,15 +223,15 @@ int main(int argc, char** argv)
     _velocity_scale_factor_parameter.estimated_maximum_interval = conf["/**"]["ros__parameters"]["velocity_scale_factor"]["estimated_maximum_interval"].as<double>();
     _velocity_scale_factor_parameter.gnss_receiving_threshold = conf["/**"]["ros__parameters"]["velocity_scale_factor"]["gnss_receiving_threshold"].as<double>();
 
-    node->declare_parameter("velocity_scale_factor_save_str",_velocity_scale_factor_save_str);
-    node->declare_parameter("velocity_scale_factor.save_velocity_scale_factor",_velocity_scale_factor_parameter.save_velocity_scale_factor);
-    node->declare_parameter("velocity_scale_factor.velocity_scale_factor_save_duration",velocity_scale_factor_save_duration);
-    node->declare_parameter("velocity_scale_factor.th_velocity_scale_factor_percent",_th_velocity_scale_factor_percent);
+    node->declare_parameter("velocity_scale_factor_save_str", _velocity_scale_factor_save_str);
+    node->declare_parameter("velocity_scale_factor.save_velocity_scale_factor", _velocity_scale_factor_parameter.save_velocity_scale_factor);
+    node->declare_parameter("velocity_scale_factor.velocity_scale_factor_save_duration", velocity_scale_factor_save_duration);
+    node->declare_parameter("velocity_scale_factor.th_velocity_scale_factor_percent", _th_velocity_scale_factor_percent);
 
-    node->get_parameter("velocity_scale_factor_save_str",_velocity_scale_factor_save_str);
-    node->get_parameter("velocity_scale_factor.save_velocity_scale_factor",_velocity_scale_factor_parameter.save_velocity_scale_factor);
-    node->get_parameter("velocity_scale_factor.velocity_scale_factor_save_duration",velocity_scale_factor_save_duration);
-    node->get_parameter("velocity_scale_factor.th_velocity_scale_factor_percent",_th_velocity_scale_factor_percent);
+    node->get_parameter("velocity_scale_factor_save_str", _velocity_scale_factor_save_str);
+    node->get_parameter("velocity_scale_factor.save_velocity_scale_factor", _velocity_scale_factor_parameter.save_velocity_scale_factor);
+    node->get_parameter("velocity_scale_factor.velocity_scale_factor_save_duration", velocity_scale_factor_save_duration);
+    node->get_parameter("velocity_scale_factor.th_velocity_scale_factor_percent", _th_velocity_scale_factor_percent);
 
     std::cout << "use_gnss_mode " << _use_gnss_mode << std::endl;
 
@@ -240,12 +245,12 @@ int main(int argc, char** argv)
     std::cout << "estimated_maximum_interval " << _velocity_scale_factor_parameter.estimated_maximum_interval << std::endl;
     std::cout << "gnss_receiving_threshold " << _velocity_scale_factor_parameter.gnss_receiving_threshold << std::endl;
 
-    std::cout<< "velocity_scale_factor_save_str " << _velocity_scale_factor_save_str << std::endl;
-    std::cout<< "save_velocity_scale_factor " << _velocity_scale_factor_parameter.save_velocity_scale_factor << std::endl;
-    std::cout<< "velocity_scale_factor_save_duration " << velocity_scale_factor_save_duration << std::endl;
-    std::cout<< "th_velocity_scale_factor_percent "<<_th_velocity_scale_factor_percent<<std::endl;
+    std::cout << "velocity_scale_factor_save_str " << _velocity_scale_factor_save_str << std::endl;
+    std::cout << "save_velocity_scale_factor " << _velocity_scale_factor_parameter.save_velocity_scale_factor << std::endl;
+    std::cout << "velocity_scale_factor_save_duration " << velocity_scale_factor_save_duration << std::endl;
+    std::cout << "th_velocity_scale_factor_percent " << _th_velocity_scale_factor_percent << std::endl;
   }
-  catch (YAML::Exception& e)
+  catch (YAML::Exception &e)
   {
     std::cerr << "\033[1;31mvelocity_scale_factor Node YAML Error: " << e.msg << "\033[0m" << std::endl;
     exit(3);
@@ -260,11 +265,11 @@ int main(int argc, char** argv)
   double delta_time = static_cast<double>(velocity_scale_factor_save_duration);
   auto timer_callback = std::bind(on_timer);
   const auto period_ns =
-    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(delta_time));
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(delta_time));
   auto timer = std::make_shared<rclcpp::GenericTimer<decltype(timer_callback)>>(
-    node->get_clock(), period_ns, std::move(timer_callback),
-    node->get_node_base_interface()->get_context());
-  if(_velocity_scale_factor_parameter.save_velocity_scale_factor)
+      node->get_clock(), period_ns, std::move(timer_callback),
+      node->get_node_base_interface()->get_context());
+  if (_velocity_scale_factor_parameter.save_velocity_scale_factor)
   {
     node->get_node_timers_interface()->add_timer(timer, nullptr);
     load_velocity_scale_factor(_velocity_scale_factor_save_str);
