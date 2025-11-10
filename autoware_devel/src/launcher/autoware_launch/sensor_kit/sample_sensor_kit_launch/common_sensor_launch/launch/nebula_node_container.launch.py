@@ -228,6 +228,8 @@ def launch_setup(context, *args, **kwargs):
         ring_outlier_output_frame = {"output_frame": LaunchConfiguration("frame_id")}
     else:
         ring_outlier_output_frame = {"output_frame": ""}  # keep the output frame as the input frame
+
+    #点云聚类区分同一物体
     nodes.append(
         ComposableNode(
             package="autoware_pointcloud_preprocessor",

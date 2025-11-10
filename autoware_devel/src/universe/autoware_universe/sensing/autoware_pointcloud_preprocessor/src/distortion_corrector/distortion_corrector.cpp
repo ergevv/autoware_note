@@ -338,7 +338,8 @@ void DistortionCorrector<T>::undistort_pointcloud(
 
   std::deque<geometry_msgs::msg::TwistStamped>::iterator it_twist;
   std::deque<geometry_msgs::msg::Vector3Stamped>::iterator it_imu;
-  get_twist_and_imu_iterator(use_imu, first_point_time_stamp_sec, it_twist, it_imu);
+  get_twist_and_imu_iterator(
+    use_imu, first_point_time_stamp_sec, it_twist, it_imu);  // 找到最接近的twist和imu
 
   // For performance, do not instantiate `rclcpp::Time` inside of the for-loop
   double twist_stamp = rclcpp::Time(it_twist->header.stamp).seconds();
@@ -357,13 +358,15 @@ void DistortionCorrector<T>::undistort_pointcloud(
     bool is_imu_valid = true;
 
     const double current_point_stamp =
-      pointcloud.header.stamp.sec + 1e-9 * (pointcloud.header.stamp.nanosec + *it_time_stamp);
+      pointcloud.header.stamp.sec +
+      1e-9 * (pointcloud.header.stamp.nanosec +
+              *it_time_stamp);  // 当前点实际的时间戳，开始时间+扫描时间
 
     // Get closest twist information
     while (it_twist != std::end(twist_queue_) - 1 && current_point_stamp > twist_stamp) {
       ++it_twist;
       twist_stamp = rclcpp::Time(it_twist->header.stamp).seconds();
-    }
+    }  // 找到时间戳≥当前点时间戳的第一个Twist数据
     if (std::abs(current_point_stamp - twist_stamp) > time_diff) {
       is_twist_time_stamp_too_late = true;
       is_twist_valid = false;
@@ -386,7 +389,7 @@ void DistortionCorrector<T>::undistort_pointcloud(
 
     if (!is_twist_valid || (use_imu && !is_imu_valid)) ++timestamp_mismatch_count_;
 
-    auto time_offset = static_cast<float>(current_point_stamp - prev_time_stamp_sec);
+    auto time_offset = static_cast<float>(current_point_stamp - prev_time_stamp_sec); //计算当前点相对于前一个点的时间偏移量
 
     // Undistort a single point based on the strategy
     undistort_point(it_x, it_y, it_z, it_twist, it_imu, time_offset, is_twist_valid, is_imu_valid);

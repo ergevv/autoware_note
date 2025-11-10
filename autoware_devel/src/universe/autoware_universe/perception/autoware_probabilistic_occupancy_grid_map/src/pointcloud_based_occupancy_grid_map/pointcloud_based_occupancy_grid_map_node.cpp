@@ -72,13 +72,16 @@ PointcloudBasedOccupancyGridMapNode::PointcloudBasedOccupancyGridMapNode(
   const double map_resolution = this->declare_parameter<double>("map_resolution");
 
   /* Subscriber and publisher */
+  // 订阅经过地面分割的障碍物点云
   obstacle_pointcloud_sub_ptr_ = this->create_subscription<PointCloud2>(
     "~/input/obstacle_pointcloud", rclcpp::SensorDataQoS{}.keep_last(1),
     std::bind(&PointcloudBasedOccupancyGridMapNode::obstaclePointcloudCallback, this, _1));
+  // 订阅原始点云数据
   raw_pointcloud_sub_ptr_ = this->create_subscription<PointCloud2>(
     "~/input/raw_pointcloud", rclcpp::SensorDataQoS{}.keep_last(1),
     std::bind(&PointcloudBasedOccupancyGridMapNode::rawPointcloudCallback, this, _1));
 
+  // 发布生成的占用网格地图
   occupancy_grid_map_pub_ = create_publisher<OccupancyGrid>("~/output/occupancy_grid_map", 1);
 
   const std::string updater_type = this->declare_parameter<std::string>("updater_type");
@@ -117,6 +120,7 @@ PointcloudBasedOccupancyGridMapNode::PointcloudBasedOccupancyGridMapNode(
       occupancy_grid_map_updater_ptr_->getResolution());
   }
 
+  //NVIDIA CUDA Runtime API
   cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking);
   raw_pointcloud_.stream = stream_;
   obstacle_pointcloud_.stream = stream_;

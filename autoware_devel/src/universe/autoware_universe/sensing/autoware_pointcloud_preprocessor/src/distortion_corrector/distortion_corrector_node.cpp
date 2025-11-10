@@ -88,31 +88,33 @@ DistortionCorrectorComponent::DistortionCorrectorComponent(const rclcpp::NodeOpt
 
 void DistortionCorrectorComponent::pointcloud_callback(PointCloud2::UniquePtr pointcloud_msg)
 {
-  stop_watch_ptr_->toc("processing_time", true);
+  stop_watch_ptr_->toc("processing_time", true);  // 重新计时
   const auto points_sub_count = undistorted_pointcloud_pub_->get_subscription_count() +
                                 undistorted_pointcloud_pub_->get_intra_process_subscription_count();
 
-  if (points_sub_count < 1) {
+  if (points_sub_count < 1) {  // 检查是否有订阅者需要去畸变点云数据
     return;
   }
-
+  // 从轮询订阅器获取所有缓存的 Twist 和 IMU 数据，将这些运动数据传递给畸变校正器进行处理
   std::vector<geometry_msgs::msg::TwistWithCovarianceStamped::ConstSharedPtr> twist_msgs =
     twist_sub_->take_data();
   for (const auto & msg : twist_msgs) {
-    distortion_corrector_->process_twist_message(msg);
+    distortion_corrector_->process_twist_message(msg);  // twist_queue_.push_back(msg);
   }
 
   if (use_imu_) {
     std::vector<sensor_msgs::msg::Imu::ConstSharedPtr> imu_msgs = imu_sub_->take_data();
     for (const auto & msg : imu_msgs) {
-      distortion_corrector_->process_imu_message(base_frame_, msg);
+      distortion_corrector_->process_imu_message(
+        base_frame_,
+        msg);  // 角速度转到车身坐标系，并angular_velocity_queue_.push_back(transformed_angular_velocity);
     }
   }
 
-  distortion_corrector_->set_pointcloud_transform(base_frame_, pointcloud_msg->header.frame_id);
-  distortion_corrector_->initialize();
+  distortion_corrector_->set_pointcloud_transform(base_frame_, pointcloud_msg->header.frame_id); //获取激光和基准坐标系之间的转换
+  distortion_corrector_->initialize(); //单位矩阵
 
-  if (update_azimuth_and_distance_ && !angle_conversion_opt_.has_value()) {
+  if (update_azimuth_and_distance_ && !angle_conversion_opt_.has_value()) { //计算运动补偿的转换公式
     angle_conversion_opt_ = distortion_corrector_->try_compute_angle_conversion(*pointcloud_msg);
     if (angle_conversion_opt_.has_value()) {
       RCLCPP_INFO(

@@ -49,6 +49,7 @@ ros2 有自己的诊断模块
 autoware_devel/src/universe/autoware_universe/simulator/autoware_fault_injection/src/fault_injection_node/fault_injection_node.cpp：
 订阅
 
+mapping
 1、
 autoware_devel/src/core/autoware_core/map/autoware_map_loader/script/map_hash_generator
 
@@ -120,6 +121,8 @@ autoware_devel/src/universe/autoware_universe/map/autoware_map_tf_generator/src/
       std::bind(&VectorMapTFGeneratorNode::on_vector_map, this, std::placeholders::_1));
 
 sensing
+
+lidar
 7、
 autoware_devel/src/launcher/autoware_launch/sensor_kit/sample_sensor_kit_launch/common_sensor_launch/launch/nebula_node_container.launch.py
 
@@ -160,17 +163,136 @@ mirror_cropped/pointcloud_ex (已移除车辆本体和后视镜)
 
 node5：autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/distortion_corrector/distortion_corrector_node.cpp
 
-发布：
+发布去完运动畸变后的点云数据
     undistorted_pointcloud_pub_ = this->create_publisher<PointCloud2>(
       "~/output/pointcloud", rclcpp::SensorDataQoS(), pub_options);
+发布诊断信息：
+  diagnostics_interface_ =
+    std::make_unique<autoware_utils::DiagnosticsInterface>(this, this->get_fully_qualified_name());
 
 订阅：
+
+特殊处理方式: 这两个订阅器使用的是 InterProcessPollingSubscriber（轮询订阅器），没有直接的回调函数。
+工作机制：
+数据到达时被缓存到内部队列中
+在 pointcloud_callback 中通过 take_data() 主动获取数据：
   twist_sub_ = autoware_utils::InterProcessPollingSubscriber<
     geometry_msgs::msg::TwistWithCovarianceStamped, autoware_utils::polling_policy::All>::
     create_subscription(this, "~/input/twist", rclcpp::QoS(TWIST_QUEUE_SIZE));
   imu_sub_ = autoware_utils::InterProcessPollingSubscriber<
     sensor_msgs::msg::Imu, autoware_utils::polling_policy::All>::
     create_subscription(this, "~/input/imu", rclcpp::QoS(TWIST_QUEUE_SIZE));
+
+  去除点云运动畸变,寻找每个点时间最接近的imu和twist数据，对点云进行去畸变处理（点云扫描过程中，车仍然在运动，导致点云扫描值不对），以第一个点云的时间作为基准时间，计算车身坐标系下的点云数据,并重新计算方位角和距离
   pointcloud_sub_ = this->create_subscription<PointCloud2>(
     "~/input/pointcloud", rclcpp::SensorDataQoS(),
     std::bind(&DistortionCorrectorComponent::pointcloud_callback, this, std::placeholders::_1));
+
+node6：
+autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/outlier_filter/ring_outlier_filter_node.cpp
+
+发布：
+
+创建异常点云发布器，输出被过滤掉的点
+      outlier_pointcloud_publisher_ =
+        this->create_publisher<PointCloud2>("debug/ring_outlier_filter", 1, pub_options);
+
+创建可见性评分发布器，发布传感器可视区域的质量指标
+    visibility_pub_ = create_publisher<autoware_internal_debug_msgs::msg::Float32Stamped>(
+      "ring_outlier_filter/debug/visibility", rclcpp::SensorDataQoS());
+
+发布诊断信息：
+  diagnostics_interface_ =
+    std::make_unique<autoware_utils::DiagnosticsInterface>(this, this->get_fully_qualified_name());
+
+参数监控器：将修改的参数读取到本地
+  set_param_res_ = this->add_on_set_parameters_callback(
+    std::bind(&RingOutlierFilterComponent::param_callback, this, _1));
+
+发布debug信息，各种时间戳
+    debug_publisher_ = std::make_unique<DebugPublisher>(this, "ring_outlier_filter");
+
+在基类filter中的处理：
+发布，同一物体的点云数据
+    pub_output_ = this->create_publisher<PointCloud2>(
+      "output", rclcpp::SensorDataQoS().keep_last(max_queue_size_), pub_options);
+
+订阅的数据保存起来，Filter::faster_input_indices_callback
+    sub_input_filter_.subscribe(
+      this, "input", rclcpp::SensorDataQoS().keep_last(max_queue_size_).get_rmw_qos_profile());
+    sub_indices_filter_.subscribe(
+      this, "indices", rclcpp::SensorDataQoS().keep_last(max_queue_size_).get_rmw_qos_profile());
+  当上述两个订阅的数据时间戳满足时，会调用，这是所有数据的起点，聚类得到同一物体的点，其他点为过滤点，发布过滤的点云数据outlier_pointcloud_publisher_，发布点云分数visibility_pub_，：
+        sync_input_indices_e_->connectInput(sub_input_filter_, sub_indices_filter_);
+      sync_input_indices_e_->registerCallback(
+        std::bind(callback, this, std::placeholders::_1, std::placeholders::_2));
+
+8、autoware_devel/src/universe/autoware_universe/system/autoware_velodyne_monitor/src/velodyne_monitor.cpp
+监控velodyne激光雷达的运行状态，包括连接状态检查、温度监测、电机转速监测
+
+9、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/concatenate_data/concatenate_and_time_sync_node.cpp、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/include/autoware/pointcloud_preprocessor/concatenate_data/concatenate_and_time_sync_node.ipp、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/concatenate_data/combine_cloud_handler_base.cpp、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/include/autoware/pointcloud_preprocessor/concatenate_data/cloud_collector.ipp
+
+接收多个传感器的点云数据，并拼接成单个点云数据，后续处理就可以看成一个点云数据
+
+// 订阅：
+
+//twist_queue_.push_back(msg);
+    if (params_.input_twist_topic_type == "twist") {
+      twist_sub_ = this->create_subscription<geometry_msgs::msg::TwistWithCovarianceStamped>(
+        "~/input/twist", rclcpp::QoS{100},
+        std::bind(
+          &PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::twist_callback, this,
+          std::placeholders::_1));
+    } else if (params_.input_twist_topic_type == "odom") {
+      odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+        "~/input/odom", rclcpp::QoS{100},
+        std::bind(
+          &PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::odom_callback, this,
+          std::placeholders::_1));
+
+//发布：
+  concatenated_cloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+    "output", rclcpp::SensorDataQoS().keep_last(params_.maximum_queue_size));
+  concatenation_info_publisher_ =
+    this->create_publisher<autoware_sensing_msgs::msg::ConcatenatedPointCloudInfo>(
+      "output_info", rclcpp::SensorDataQoS().keep_last(params_.maximum_queue_size));
+问题：不同LiDAR传感器的数据到达时间不同，直接拼接会产生时空不一致
+解决方案：使用收集器机制等待所有传感器数据到达或超时后统一处理
+
+问题：车辆在扫描过程中移动会导致点云变形
+解决方案：
+- 订阅车辆运动信息（Twist/Odometry）
+- 根据时间戳计算运动补偿变换矩阵
+- 在拼接前对点云进行运动补偿
+
+问题：频繁创建销毁对象影响性能
+解决方案：
+- 使用收集器池化管理
+- 预创建固定数量的收集器实例
+- 通过状态机管理收集器生命周期
+
+问题：传感器时间戳可能存在微小差异
+解决方案：
+- 提供两种匹配策略（naive和advanced）
+- advanced策略支持时间窗口内的点云分组
+
+Perception（感知）：
+1、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/downsample_filter/pickup_based_voxel_grid_downsample_filter_node.cpp
+    <remap from="input" to="$(var input/pointcloud)"/>
+    <remap from="output" to="$(var downsampled_pointcloud)"/>
+点云下采样
+
+2、autoware_devel/src/universe/autoware_universe/perception/autoware_probabilistic_occupancy_grid_map/src/pointcloud_based_occupancy_grid_map/pointcloud_based_occupancy_grid_map_node.cpp
+将激光雷达点云数据转换为二维占用网格地图
+
+  // 订阅经过地面分割的障碍物点云
+  obstacle_pointcloud_sub_ptr_ = this->create_subscription<PointCloud2>(
+    "~/input/obstacle_pointcloud", rclcpp::SensorDataQoS{}.keep_last(1),
+    std::bind(&PointcloudBasedOccupancyGridMapNode::obstaclePointcloudCallback, this, _1));
+  // 订阅原始点云数据
+  raw_pointcloud_sub_ptr_ = this->create_subscription<PointCloud2>(
+    "~/input/raw_pointcloud", rclcpp::SensorDataQoS{}.keep_last(1),
+    std::bind(&PointcloudBasedOccupancyGridMapNode::rawPointcloudCallback, this, _1));
+
+  // 发布生成的占用网格地图
+  occupancy_grid_map_pub_ = create_publisher<OccupancyGrid>("~/output/occupancy_grid_map", 1);

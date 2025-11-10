@@ -149,6 +149,12 @@ void autoware::pointcloud_preprocessor::Filter::subscribe(const std::string & fi
         std::bind(callback, this, std::placeholders::_1, std::placeholders::_2));
     } else {
       sync_input_indices_e_ = std::make_shared<ExactTimeSyncPolicy>(max_queue_size_);
+
+      // 精确时间同步要求两个输入消息具有完全相同的时间戳才会触发回调，确保数据在时间上严格对齐：
+
+      //   当点云消息和索引消息到达时，同步器检查它们的时间戳
+      //   只有当两个消息的时间戳完全匹配时，才会调用注册的回调函数
+      //   如果时间戳不匹配，消息会被缓存在队列中等待匹配的消息
       sync_input_indices_e_->connectInput(sub_input_filter_, sub_indices_filter_);
       sync_input_indices_e_->registerCallback(
         std::bind(callback, this, std::placeholders::_1, std::placeholders::_2));

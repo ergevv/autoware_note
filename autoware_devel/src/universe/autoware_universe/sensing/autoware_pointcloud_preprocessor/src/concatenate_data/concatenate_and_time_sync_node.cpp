@@ -55,7 +55,7 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<
     }
   }
 
-  // Subscribers
+  // Subscribersinit_collector_list_
   for (const std::string & topic : params_.input_topics) {
     auto callback = [&](const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
       this->cloud_callback(msg, topic);
@@ -75,6 +75,8 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<
 }
 
 }  // namespace autoware::pointcloud_preprocessor
+
+// 模板实例化，在哪个编译单元（.cpp 文件）中使用（实例化）了模板，编译器就在那个编译单元生成对应的、具体类型的代码。
 
 template class autoware::pointcloud_preprocessor::
   PointCloudConcatenateDataSynchronizerComponentTemplated<

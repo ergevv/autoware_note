@@ -154,10 +154,10 @@ void RingOutlierFilterComponent::faster_filter(
       if (
         std::max(current_distance, next_distance) <
           std::min(current_distance, next_distance) * distance_ratio_ &&
-        azimuth_diff < 1.0 * (180.0 / M_PI)) {  // one degree
+        azimuth_diff < 1.0 * (180.0 / M_PI)) {  // one degree，两点间距离比小于阈值 distance_ratio_
         continue;                               // Determined to be included in the same walk
       }
-
+      //连续点距离要接近，第一个点和最后一个点之间的距离足够远，则认为这两个点是同一个walk
       if (is_cluster(input, std::make_pair(indices[walk_first_idx], indices[walk_last_idx]))) {
         for (int i = walk_first_idx; i <= walk_last_idx; i++) {
           auto output_ptr = reinterpret_cast<OutputPointType *>(&output.data[output_size]);
@@ -206,7 +206,7 @@ void RingOutlierFilterComponent::faster_filter(
         }
       }
 
-      walk_first_idx = idx + 1;
+      walk_first_idx = idx + 1; //先让walk_last_idx遍历到合适的位置，walk_first_idx再遍历
     }
 
     if (walk_first_idx > walk_last_idx) continue;
