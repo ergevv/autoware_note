@@ -65,6 +65,7 @@
   </group>
 
   <!-- Eagleye Launch -->
+  <!-- 日本名古屋大学 Meguro Lab（目黑研究室）开发的开源项目，利用 GNSS（全球导航卫星系统）与 IMU（惯性测量单元）等传感器数据，实现高精度、鲁棒的车辆/机器人位姿（位置与姿态）估计。 -->
   <group if="$(eval &quot;$(var use_eagleye_pose) or $(var use_eagleye_twist)&quot;)">
     <let name="eagleye_name_space" value="pose_twist_estimator"/>
     <let name="eagleye_name_space" value="twist_estimator" unless="$(var use_eagleye_pose)"/>

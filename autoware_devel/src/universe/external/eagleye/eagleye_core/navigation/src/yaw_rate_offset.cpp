@@ -31,6 +31,13 @@
 #include "eagleye_coordinate/eagleye_coordinate.hpp"
 #include "eagleye_navigation/eagleye_navigation.hpp"
 
+// 第一个参数是 const geometry_msgs::msg::TwistStamped velocity：车辆速度信息，包含线速度和角速度数据，使用const引用传递避免拷贝
+// 第二个参数是 const eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop：停车状态下的偏航角速度偏移估计值，使用const引用传递
+// 第三个参数是 const eagleye_msgs::msg::Heading heading_interpolate：插值得到的航向角信息，使用const引用传递
+// 第四个参数是 const sensor_msgs::msg::Imu imu：当前IMU数据，包含角速度、线性加速度等信息，使用const引用传递
+// 第五个参数是 const YawrateOffsetParameter yaw_rate_offset_parameter：偏航角速度偏移估计的相关参数配置，使用const引用传递
+// 第六个参数是 YawrateOffsetStatus* yaw_rate_offset_status：指向偏航角速度偏移估计状态的指针，用于存储中间计算状态和历史数据，使用指针传递以便修改内部值
+// 第七个参数是 eagleye_msgs::msg::YawrateOffset* yaw_rate_offset：指向最终偏航角速度偏移估计结果的指针，使用指针传递以便写入计算结果
 void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, const eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop,
   const eagleye_msgs::msg::Heading heading_interpolate,const sensor_msgs::msg::Imu imu, const YawrateOffsetParameter yaw_rate_offset_parameter,
   YawrateOffsetStatus* yaw_rate_offset_status, eagleye_msgs::msg::YawrateOffset* yaw_rate_offset)
