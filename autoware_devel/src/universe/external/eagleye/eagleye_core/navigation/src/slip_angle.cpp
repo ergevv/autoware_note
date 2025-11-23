@@ -31,6 +31,13 @@
 #include "eagleye_coordinate/eagleye_coordinate.hpp"
 #include "eagleye_navigation/eagleye_navigation.hpp"
 
+// imu: IMU传感器数据，包含角速度等信息
+// velocity: 车辆速度信息
+// velocity_status: 速度状态信息（是否可用）
+// yaw_rate_offset_stop: 停止时的偏航率偏移量
+// yaw_rate_offset_2nd: 第二套偏航率偏移量
+// slip_angle_parameter: 侧滑角计算参数配置
+// slip_angle: 输出的侧滑角结果（指针传递）
 void slip_angle_estimate(sensor_msgs::msg::Imu imu, geometry_msgs::msg::TwistStamped velocity, eagleye_msgs::msg::StatusStamped velocity_status,
   eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop, eagleye_msgs::msg::YawrateOffset yaw_rate_offset_2nd, SlipangleParameter slip_angle_parameter,
   eagleye_msgs::msg::SlipAngle* slip_angle)

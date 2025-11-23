@@ -93,7 +93,7 @@ void heading_estimate_(sensor_msgs::msg::Imu imu, geometry_msgs::msg::TwistStamp
   if (heading_status->estimated_number  > estimated_buffer_number_min &&
     heading_status->gnss_status_buffer [heading_status->estimated_number -1] == true &&
     heading_status->correction_velocity_buffer [heading_status->estimated_number -1] > heading_parameter.moving_judgment_threshold &&
-    fabsf(heading_status->yaw_rate_buffer [heading_status->estimated_number -1]) < heading_parameter.curve_judgment_threshold)
+    fabsf(heading_status->yaw_rate_buffer [heading_status->estimated_number -1]) < heading_parameter.curve_judgment_threshold) //车辆未处于急转弯状态
   {
     heading->status.enabled_status = true;
   }
@@ -129,7 +129,8 @@ void heading_estimate_(sensor_msgs::msg::Imu imu, geometry_msgs::msg::TwistStamp
       {
         if (i > 0)
         {
-          if (std::abs(heading_status->correction_velocity_buffer [heading_status->estimated_number -1]) > heading_parameter.moving_judgment_threshold)
+          //积分航向角
+          if (std::abs(heading_status->correction_velocity_buffer [heading_status->estimated_number -1]) > heading_parameter.moving_judgment_threshold)//根据状态选择使用的偏航角速度偏移值
           {
             provisional_heading_angle_buffer[i] = provisional_heading_angle_buffer[i-1] +
               ((heading_status->yaw_rate_buffer [i] + heading_status->yaw_rate_offset_buffer [i]) *
@@ -168,12 +169,12 @@ void heading_estimate_(sensor_msgs::msg::Imu imu, geometry_msgs::msg::TwistStamp
 
       for (i = 0; i < index_length; i++)
       {
-        ref_cnt = (base_heading_angle_buffer[index[i]] - std::fmod(base_heading_angle_buffer[index[i]],2*M_PI))/(2*M_PI);
-        if(base_heading_angle_buffer[index[i]] < 0) ref_cnt = ref_cnt -1;
-        heading_angle_buffer2[index[i]] = heading_status->heading_angle_buffer [index[i]] + ref_cnt * 2*M_PI;
+        ref_cnt = (base_heading_angle_buffer[index[i]] - std::fmod(base_heading_angle_buffer[index[i]],2*M_PI))/(2*M_PI); //2pi的倍数
+        if(base_heading_angle_buffer[index[i]] < 0) ref_cnt = ref_cnt -1; //当角度为负值时，需要向下取整而不是向零取整
+        heading_angle_buffer2[index[i]] = heading_status->heading_angle_buffer [index[i]] + ref_cnt * 2*M_PI; //将原始航向角加上适当的2π倍数
       }
 
-      while (1)
+      while (1) //剔除异常值
       {
         index_length = std::distance(index.begin(), index.end());
 
@@ -245,6 +246,18 @@ void heading_estimate_(sensor_msgs::msg::Imu imu, geometry_msgs::msg::TwistStamp
     }
   }
 }
+
+// rtklib_msgs::msg::RtklibNav rtklib_nav: 来自 RTKLIB 的导航消息，包含 ECEF 坐标系下的位置和速度信息。
+// sensor_msgs::msg::Imu imu: IMU 消息，提供角速度等惯性测量数据。
+// geometry_msgs::msg::TwistStamped velocity: 车辆的速度信息，主要是线速度。
+// eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop: 在停车状态下的偏航率偏移量。
+// eagleye_msgs::msg::YawrateOffset yaw_rate_offset: 正常行驶状态下的偏航率偏移量。
+// eagleye_msgs::msg::SlipAngle slip_angle: 车辆侧滑角度。
+// eagleye_msgs::msg::Heading heading_interpolate: 插值得到的航向角信息。
+// HeadingParameter heading_parameter: 包含航向角估算所需的各种参数配置。
+// HeadingStatus* heading_status: 存储航向角估算过程中的中间状态与缓存数据。
+// eagleye_msgs::msg::Heading* heading: 输出结果，即估算出的航向角信息。
+
 
 void heading_estimate(rtklib_msgs::msg::RtklibNav rtklib_nav,sensor_msgs::msg::Imu imu, geometry_msgs::msg::TwistStamped velocity,
   eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop,eagleye_msgs::msg::YawrateOffset yaw_rate_offset,eagleye_msgs::msg::SlipAngle slip_angle,
