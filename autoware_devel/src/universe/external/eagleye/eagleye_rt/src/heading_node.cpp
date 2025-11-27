@@ -79,6 +79,12 @@ void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
   tf2::Quaternion orientation;
   tf2::fromMsg(msg->pose.orientation, orientation);
   double roll, pitch, yaw;
+
+// 对于地面车辆，我们通常做平面运动假设：
+//   车辆主要在水平面上运动
+//   pitch（俯仰角）和roll（横滚角）通常很小，可以忽略
+//   主要关注的是绕Z轴的旋转（偏航角）
+// 更精确的方法：从旋转矩阵直接计算x轴在水平面投影，在水平面上的角度作为航向角
   tf2::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
   double heading = - yaw + (90* M_PI / 180);
 
@@ -101,10 +107,12 @@ void yaw_rate_offset_callback(const eagleye_msgs::msg::YawrateOffset::ConstShare
   yaw_rate_offset = *msg;
 }
 
+// 侧滑角：：车辆质心处的速度矢量方向 与 车辆纵轴（车头指向）方向 之间的夹角。
 void slip_angle_callback(const eagleye_msgs::msg::SlipAngle::ConstSharedPtr msg)
 {
   slip_angle = *msg;
 }
+
 
 void heading_interpolate_callback(const eagleye_msgs::msg::Heading::ConstSharedPtr msg)
 {

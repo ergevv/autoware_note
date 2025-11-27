@@ -37,6 +37,16 @@
       <param from="$(var eagleye_param_path)"/>
       <param name="yaml_file" value="$(var eagleye_param_path)"/>
     </node>
+    <!-- 第一阶段 (1st)：
+
+    初步估计偏航角速度偏移
+    使用相对较短的时间窗口和较宽松的参数
+    提供快速但精度相对较低的估计
+    第二阶段 (2nd)：
+
+    更精确的偏航角速度偏移估计
+    使用更长的时间窗口和更严格的参数
+    基于第一阶段的结果进行优化，提供更高精度的估计 -->
     <node pkg="eagleye_rt" name="yaw_rate_offset_node_1st" exec="yaw_rate_offset" args="1st">
       <param from="$(var eagleye_param_path)"/>
       <param name="yaml_file" value="$(var eagleye_param_path)"/>

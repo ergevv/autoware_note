@@ -282,6 +282,8 @@ Gyro Odometer Launch (as twist estimator):
   twist_with_covariance_pub_ = create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>(
     "twist_with_covariance", rclcpp::QoS{10});
 
+CAN（Controller Area Network，控制器局域网络）是由德国博世公司在1980年代开发的一种串行通信协议，专门用于汽车内部电子控制单元（ECU）之间的数据交换。在这里用于传递数据，这些数据精度更高
+
 Eagleye：日本名古屋大学 Meguro Lab（目黑研究室）开发的开源项目，利用 GNSS（全球导航卫星系统）与 IMU（惯性测量单元）等传感器数据，实现高精度、鲁棒的车辆/机器人位姿（位置与姿态）估计。
 5、
 （1）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/twist_relay.cpp 转发twist数据，带协方差则去除协方差
@@ -293,3 +295,16 @@ Eagleye：日本名古屋大学 Meguro Lab（目黑研究室）开发的开源�
 （4）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/yaw_rate_offset_stop_node.cpp：根据静止状态下，估计imu在z轴的角速度偏移量。并发布出去。
 
 （5）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/yaw_rate_offset_node.cpp
+航向角速度来自imu，x轴速度来自车轮编码器
+准备条件状态为2（已就绪）、最新速度x大于移动判断阈值（车辆正在移动）、最新航向角估计状态有效。如果全部满足，则设置估计条件状态为true，允许进行偏航角速度偏移估计。积分得到每个时间段的偏航角，然后与GNSS航向角比较，计算偏差，得到偏航角速度偏移量。积分的偏航角与GNSS航向角的差值随着时间的变换越来越大，通过最小二乘法求斜率这是航向角偏移量。
+
+（6）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/heading_node.cpp 根据GNSS数据和·imu积分的航向角过滤噪声，得到更加准确的航向角。
+
+（7）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/heading_interpolate_node.cpp 感觉没做什么工作，找到imu积分的航向角，以及对应时间GNSS预测的航向角之差补充到最新时间imu预测的航向角上（最新时间比预测时间大，所以需要计算偏移量）。校正后的预测航向角加上侧滑角得到最终的航向角
+
+（8）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/slip_angle_node.cpp 计算侧滑角：系数*横向加速度 = 系数* imu在z轴的角速度乘x轴速度，得到侧滑角。横向加速度 = 纵向速度 × 偏航率。对于较小的侧滑角，侧滑角 ≈ 横向速度 / 纵向速度
+
+（9）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/distance_node.cpp
+计算当前时间位移，当前距离 = 原始距离 + 速度（x轴） × 时间间隔
+
+（10）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/trajectory_node.cpp 根据imu的角速度和x轴速度，计算车辆在ENU坐标系下的相对位置变化。区分直线运动和曲线运动两种情况，使用不同的运动模型进行计算，得到更准确的轨迹估计。

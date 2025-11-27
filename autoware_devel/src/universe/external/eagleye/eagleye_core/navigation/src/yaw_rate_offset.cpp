@@ -33,14 +33,14 @@
 
 // 第一个参数是 const geometry_msgs::msg::TwistStamped velocity：车辆速度信息，包含线速度和角速度数据，使用const引用传递避免拷贝
 // 第二个参数是 const eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop：停车状态下的偏航角速度偏移估计值，使用const引用传递
-// 第三个参数是 const eagleye_msgs::msg::Heading heading_interpolate：插值得到的航向角信息，使用const引用传递
+// 第三个参数是 const eagleye_msgs::msg::Heading heading_interpolate：插值得到的航向角信息，使用const引用传递，来自GNSS
 // 第四个参数是 const sensor_msgs::msg::Imu imu：当前IMU数据，包含角速度、线性加速度等信息，使用const引用传递
 // 第五个参数是 const YawrateOffsetParameter yaw_rate_offset_parameter：偏航角速度偏移估计的相关参数配置，使用const引用传递
 // 第六个参数是 YawrateOffsetStatus* yaw_rate_offset_status：指向偏航角速度偏移估计状态的指针，用于存储中间计算状态和历史数据，使用指针传递以便修改内部值
 // 第七个参数是 eagleye_msgs::msg::YawrateOffset* yaw_rate_offset：指向最终偏航角速度偏移估计结果的指针，使用指针传递以便写入计算结果
 void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, const eagleye_msgs::msg::YawrateOffset yaw_rate_offset_stop,
-  const eagleye_msgs::msg::Heading heading_interpolate,const sensor_msgs::msg::Imu imu, const YawrateOffsetParameter yaw_rate_offset_parameter,
-  YawrateOffsetStatus* yaw_rate_offset_status, eagleye_msgs::msg::YawrateOffset* yaw_rate_offset)
+                              const eagleye_msgs::msg::Heading heading_interpolate, const sensor_msgs::msg::Imu imu, const YawrateOffsetParameter yaw_rate_offset_parameter,
+                              YawrateOffsetStatus *yaw_rate_offset_status, eagleye_msgs::msg::YawrateOffset *yaw_rate_offset)
 {
   int i;
   double yaw_rate = 0.0;
@@ -60,7 +60,7 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
   rclcpp::Time ros_clock(imu.header.stamp);
   auto imu_time = ros_clock.seconds();
 
-  if(yaw_rate_offset->status.enabled_status == true)
+  if (yaw_rate_offset->status.enabled_status == true)
   {
     estimated_number_cur = estimated_buffer_number_max;
   }
@@ -99,9 +99,9 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
     yaw_rate_offset_status->heading_estimate_status_buffer.erase(yaw_rate_offset_status->heading_estimate_status_buffer.begin());
     yaw_rate_offset_status->yaw_rate_offset_stop_buffer.erase(yaw_rate_offset_status->yaw_rate_offset_stop_buffer.begin());
   }
-
+  // 如果已有偏航角了，则更改准备状态为1，如果准备状态为1且航向估计状态计数小于最小估计缓冲区数，则增加计数器，否则如果等于最小估计缓冲区数，则将准备状态更改为2
   if (yaw_rate_offset_status->estimated_preparation_conditions == 0 &&
-    yaw_rate_offset_status->heading_estimate_status_buffer[yaw_rate_offset_status->estimated_number - 1] == true)
+      yaw_rate_offset_status->heading_estimate_status_buffer[yaw_rate_offset_status->estimated_number - 1] == true)
   {
     yaw_rate_offset_status->estimated_preparation_conditions = 1;
   }
@@ -116,9 +116,8 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
       yaw_rate_offset_status->estimated_preparation_conditions = 2;
     }
   }
-
-  if (yaw_rate_offset_status->estimated_preparation_conditions == 2 && yaw_rate_offset_status->correction_velocity_buffer[yaw_rate_offset_status->estimated_number-1] >
-    yaw_rate_offset_parameter.moving_judgment_threshold && yaw_rate_offset_status->heading_estimate_status_buffer[yaw_rate_offset_status->estimated_number-1] == true)
+  // 最后检查是否满足估计条件：准备条件状态为2（已就绪）、最新速度大于移动判断阈值（车辆正在移动）、最新航向角估计状态有效。如果全部满足，则设置估计条件状态为true，允许进行偏航角速度偏移估计。
+  if (yaw_rate_offset_status->estimated_preparation_conditions == 2 && yaw_rate_offset_status->correction_velocity_buffer[yaw_rate_offset_status->estimated_number - 1] > yaw_rate_offset_parameter.moving_judgment_threshold && yaw_rate_offset_status->heading_estimate_status_buffer[yaw_rate_offset_status->estimated_number - 1] == true)
   {
     estimated_condition_status = true;
   }
@@ -133,6 +132,7 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
 
   if (estimated_condition_status == true)
   {
+    // 在偏航角速度偏移估计中，需要找到同时满足以下两个条件的数据点：
     for (i = 0; i < yaw_rate_offset_status->estimated_number; i++)
     {
       if (yaw_rate_offset_status->correction_velocity_buffer[i] > yaw_rate_offset_parameter.moving_judgment_threshold)
@@ -153,13 +153,13 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
     if (index_length > yaw_rate_offset_status->estimated_number * enabled_data_ratio)
     {
       std::vector<double> provisional_heading_angle_buffer(yaw_rate_offset_status->estimated_number, 0);
-
+      // 对于第一个点(i=0)，保持初始值0
+      // 对于后续点，使用前一点的航向角加上偏航角速度乘以时间差进行积分计算
       for (i = 0; i < yaw_rate_offset_status->estimated_number; i++)
       {
         if (i > 0)
         {
-          provisional_heading_angle_buffer[i] = provisional_heading_angle_buffer[i-1] +
-            yaw_rate_offset_status->yaw_rate_buffer[i] * (yaw_rate_offset_status->time_buffer[i] - yaw_rate_offset_status->time_buffer[i-1]);
+          provisional_heading_angle_buffer[i] = provisional_heading_angle_buffer[i - 1] + yaw_rate_offset_status->yaw_rate_buffer[i] * (yaw_rate_offset_status->time_buffer[i] - yaw_rate_offset_status->time_buffer[i - 1]);
         }
       }
 
@@ -171,19 +171,23 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
 
       index_length = std::distance(index.begin(), index.end());
 
-      //base_heading_angle_buffer.clear();
+      // base_heading_angle_buffer.clear();
+      // provisional_heading_angle_buffer[i]表达0到i时刻积分的航向角
+      // 因为是从0开始积分的，所以需要用最后一个点的实际航向角减去最后一个点的积分航向角，得到一个偏差值
+      // 然后将这个偏差值加到每个点的积分航向角上，得到与实际航向角对齐的基准航向角序列
       for (i = 0; i < yaw_rate_offset_status->estimated_number; i++)
       {
-        base_heading_angle_buffer.push_back(yaw_rate_offset_status->heading_angle_buffer[index[index_length-1]] -
-          provisional_heading_angle_buffer[index[index_length-1]] + provisional_heading_angle_buffer[i]);
+        base_heading_angle_buffer.push_back(yaw_rate_offset_status->heading_angle_buffer[index[index_length - 1]] - provisional_heading_angle_buffer[index[index_length - 1]] + provisional_heading_angle_buffer[i]);
       }
 
-      //diff_buffer.clear();
+      // diff_buffer.clear();
       for (i = 0; i < index_length; i++)
       {
         // diff_buffer.push_back(base_heading_angle_buffer[index[i]] - heading_angle_buffer[index[i]]);
-        diff_buffer.push_back(yaw_rate_offset_status->heading_angle_buffer[index[index_length-1]] - provisional_heading_angle_buffer[index[index_length-1]] +
-          provisional_heading_angle_buffer[index[i]] - yaw_rate_offset_status->heading_angle_buffer[index[i]]);
+        // 因为是从0开始积分的，所以需要用最后一个点的实际航向角减去最后一个点的积分航向角，得到一个偏差值
+        // 然后将这个偏差值加到每个点的积分航向角上，得到与实际航向角对齐的基准航向角序列
+        //再减去实际航向角，得到偏航角速度偏移估计
+        diff_buffer.push_back(yaw_rate_offset_status->heading_angle_buffer[index[index_length - 1]] - provisional_heading_angle_buffer[index[index_length - 1]] + provisional_heading_angle_buffer[index[i]] - yaw_rate_offset_status->heading_angle_buffer[index[i]]);
       }
 
       time_buffer2.clear();
@@ -193,8 +197,16 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
       }
 
       // Least-square
+      // 假设有一组数据点 (x_i, y_i)，我们希望找到一个线性函数 y = mx + b，使得这些点到该直线的垂直距离的平方和最小。
+      // 其中，m 是斜率，b 是截距。
+      // 为了找到最佳的 m 和 b，我们可以使用最小二乘法的公式：
+      // m = (N * Σ(x_i * y_i) - Σx_i * Σy_i) / (N * Σ(x_i^2) - (Σx_i)^2)
+      // b = (Σy_i - m * Σx_i) / N
+      // 这里，N 是数据点的数量，Σ 表示对所有数据点求和。
+      // 在我们的情况下，x_i 是时间差 time_buffer2[i]， y_i 是 diff_buffer[i]。
+      // 通过计算这些和，我们可以得到偏航角速度偏移的估计值（斜率的相反数）
       sum_xy = 0.0, sum_x = 0.0, sum_y = 0.0, sum_x2 = 0.0;
-      for (i = 0; i < index_length ; i++)
+      for (i = 0; i < index_length; i++)
       {
         sum_xy += time_buffer2[i] * diff_buffer[i];
         sum_x += time_buffer2[i];
@@ -207,14 +219,15 @@ void yaw_rate_offset_estimate(const geometry_msgs::msg::TwistStamped velocity, c
     }
   }
 
+  // 计算失败，则继续使用停车状态下的偏航角速度偏移值
   if (yaw_rate_offset->status.enabled_status == false)
   {
     yaw_rate_offset->yaw_rate_offset = yaw_rate_offset_stop.yaw_rate_offset;
   }
 
+  // 检测偏航角速度偏移估计值是否超出阈值，如果超出阈值则使用停车状态下的偏航角速度偏移值
   if (std::fabs(yaw_rate_offset->yaw_rate_offset - yaw_rate_offset_stop.yaw_rate_offset) > yaw_rate_offset_parameter.outlier_threshold)
   {
     yaw_rate_offset->yaw_rate_offset = yaw_rate_offset_stop.yaw_rate_offset;
   }
-
 }

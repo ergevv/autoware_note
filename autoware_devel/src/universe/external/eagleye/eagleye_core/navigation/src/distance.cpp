@@ -31,6 +31,7 @@
 #include "eagleye_coordinate/eagleye_coordinate.hpp"
 #include "eagleye_navigation/eagleye_navigation.hpp"
 
+// TwistStamped应该是轮速计测得的速度
 void distance_estimate(const geometry_msgs::msg::TwistStamped velocity, DistanceStatus* distance_status,eagleye_msgs::msg::Distance* distance)
 {
 

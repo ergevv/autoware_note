@@ -80,7 +80,7 @@ void on_timer()
   geometry_msgs::msg::TransformStamped transformStamped;
   try
   {
-    transformStamped = tfBuffer_.lookupTransform(rtk_dead_reckoning_parameter.tf_gnss_parent_frame, rtk_dead_reckoning_parameter.tf_gnss_child_frame, tf2::TimePointZero);
+    transformStamped = tfBuffer_.lookupTransform(rtk_dead_reckoning_parameter.tf_gnss_parent_frame, rtk_dead_reckoning_parameter.tf_gnss_child_frame, tf2::TimePointZero); //TF系统中查询GNSS天线相对于其父坐标系的变换
 
     rtk_dead_reckoning_parameter.tf_gnss_translation_x = transformStamped.transform.translation.x;
     rtk_dead_reckoning_parameter.tf_gnss_translation_y = transformStamped.transform.translation.y;
