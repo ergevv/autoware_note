@@ -2,6 +2,7 @@
   <arg name="enable_all_modules_auto_mode"/>
   <arg name="is_simulation"/>
   <!-- scenario selector -->
+  <!-- 根据环境变化自动在常规车道驾驶和特殊停车场景之间做出合理切换决策 -->
   <group>
     <include file="$(find-pkg-share autoware_scenario_selector)/launch/scenario_selector.launch.xml">
       <arg name="input_lane_driving_trajectory" value="/planning/scenario_planning/lane_driving/trajectory"/>
@@ -50,6 +51,7 @@
   </group>
 
   <!-- hazard lights selector -->
+  <!-- 控制开启危险警示灯 -->
   <group>
     <include file="$(find-pkg-share autoware_hazard_lights_selector)/launch/hazard_lights_selector.launch.xml">
       <arg name="hazard_lights_selector_param_path" value="$(var hazard_lights_selector_param_path)"/>

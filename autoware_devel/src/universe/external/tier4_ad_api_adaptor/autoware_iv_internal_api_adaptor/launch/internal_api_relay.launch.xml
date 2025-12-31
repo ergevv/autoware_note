@@ -1,7 +1,8 @@
 <launch>
   <group>
     <push-ros-namespace namespace="internal"/>
-    <node pkg="topic_tools" exec="relay" name="traffic_signals">
+    <!-- 将一个话题的数据原样转发到另一个话题 -->
+    <node pkg="topic_tools" exec="relay" name="traffic_signals"> 
       <param name="input_topic" value="/api/autoware/set/traffic_signals"/>
       <param name="output_topic" value="/external/traffic_light_recognition/traffic_signals"/>
       <param name="type" value="autoware_perception_msgs/msg/TrafficSignalArray"/>

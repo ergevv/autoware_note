@@ -36,6 +36,7 @@
     </group>
 
     <!-- planning validator -->
+    <!-- 它的主要作用是对规划模块生成的轨迹进行一系列检查，确保轨迹符合物理约束和安全要求。 -->
     <group>
       <include file="$(find-pkg-share autoware_planning_validator)/launch/planning_validator.launch.xml">
         <arg name="container_type" value="component_container_mt"/>
@@ -55,6 +56,7 @@
     </group>
 
     <!-- mission remaining distance and time calculator -->
+    <!-- 计算自动驾驶车辆到达目标点剩余距离和时间 -->
     <group if="$(var launch_remaining_distance_time_calculator)">
       <include file="$(find-pkg-share autoware_remaining_distance_time_calculator)/launch/remaining_distance_time_calculator.launch.xml"/>
     </group>

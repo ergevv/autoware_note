@@ -43,9 +43,9 @@ def get_default_config():
 
 def generate_launch_description():
     components = [
-        create_api_node("autoware_default_adapi", "interface", "InterfaceNode"),
-        create_api_node("autoware_default_adapi", "localization", "LocalizationNode"),
-        create_api_node("autoware_default_adapi", "routing", "RoutingNode"),
+        create_api_node("autoware_default_adapi", "interface", "InterfaceNode"), #返回版本号
+        create_api_node("autoware_default_adapi", "localization", "LocalizationNode"), # 订阅位姿转发出去
+        create_api_node("autoware_default_adapi", "routing", "RoutingNode"), # 订阅路径转发出去，没有核心操作
         create_api_node("autoware_default_adapi_universe", "autoware_state", "AutowareStateNode"),
         create_api_node("autoware_default_adapi_universe", "diagnostics", "DiagnosticsNode"),
         create_api_node("autoware_default_adapi_universe", "fail_safe", "FailSafeNode"),

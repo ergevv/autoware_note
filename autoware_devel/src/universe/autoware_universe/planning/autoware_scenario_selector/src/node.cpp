@@ -289,7 +289,7 @@ void ScenarioSelectorNode::onOdom(const nav_msgs::msg::Odometry::ConstSharedPtr 
   twist->twist = msg->twist.twist;
 
   twist_ = twist;
-  twist_buffer_.push_back(twist);
+  twist_buffer_.push_back(twist);  // 保留里程计数据
 
   // Delete old data in buffer
   while (true) {
@@ -300,7 +300,7 @@ void ScenarioSelectorNode::onOdom(const nav_msgs::msg::Odometry::ConstSharedPtr 
       break;
     }
 
-    twist_buffer_.pop_front();
+    twist_buffer_.pop_front();  // 去除旧的数据
   }
 }
 
@@ -347,22 +347,22 @@ bool ScenarioSelectorNode::isDataReady()
 void ScenarioSelectorNode::updateData()
 {
   {
-    stop_watch.tic();
+    stop_watch.tic();  // 开始性能计时
   }
   {
-    auto msg = sub_parking_state_->take_data();
+    auto msg = sub_parking_state_->take_data();  // 从"is_parking_completed"中获取数据
     is_parking_completed_ = msg ? msg->data : is_parking_completed_;
   }
 
   {
-    auto msgs = sub_odom_->take_data();
+    auto msgs = sub_odom_->take_data();  // input/odometry"订阅所有里程计数据
     for (const auto & msg : msgs) {
       onOdom(msg);
     }
   }
 
   {
-    auto msg = sub_operation_mode_state_->take_data();
+    auto msg = sub_operation_mode_state_->take_data();  // 获取最新的操作模式
     if (msg) operation_mode_state_ = msg;
   }
 }

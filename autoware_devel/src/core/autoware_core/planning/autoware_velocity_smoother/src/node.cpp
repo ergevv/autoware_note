@@ -460,7 +460,7 @@ void VelocitySmootherNode::onCurrentTrajectory(const Trajectory::ConstSharedPtr 
   base_traj_raw_ptr_ = msg;
 
   // receive data
-  current_odometry_ptr_ = sub_current_odometry_.take_data();
+  current_odometry_ptr_ = sub_current_odometry_.take_data(); //主动轮询的数据获取机制，它不依赖 ROS2 的回调系统，而是直接从订阅队列中提取数据，
   current_acceleration_ptr_ = sub_current_acceleration_.take_data();
   external_velocity_limit_ptr_ = sub_external_velocity_limit_.take_data();
   const auto operation_mode_ptr = sub_operation_mode_.take_data();

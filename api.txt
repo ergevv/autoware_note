@@ -1,0 +1,41 @@
+1、autoware_devel/src/universe/external/tier4_ad_api_adaptor/awapi_awiv_adapter/src/awapi_awiv_adapter_node.cpp
+将来自Autoware各个模块的数据收集到 aw_info_ 结构中，然后通过定时回调函数发布为API格式。
+
+2、autoware_devel/src/universe/external/tier4_ad_api_adaptor/autoware_iv_external_api_adaptor/launch/external_api_adaptor.launch.py
+（1）autoware_devel/src/universe/external/tier4_ad_api_adaptor/autoware_iv_external_api_adaptor/src/calibration_status.cpp
+2. 加速制动映射校准
+2.1 什么是加速制动映射
+加速映射: 描述控制命令与实际车辆加速响应之间的关系
+制动映射: 描述控制命令与实际车辆制动响应之间的关系
+目的: 确保控制系统发出的指令能产生预期的车辆动态响应
+2.2 校准过程
+通过实际测试获取车辆的加速/制动特性
+建立控制输入与车辆响应之间的映射关系
+创建校准表或参数用于后续控制
+（2）cpu_usage
+（3）diagnostics
+（4）door：
+提供外部 API 接口用于控制车门（打开/关闭）
+将外部请求转发到内部车辆系统
+监听内部车门状态并转发到外部 API 接口
+（5）emergency：允许外部系统触发紧急停车或紧急操作，确保车辆在紧急情况下能够安全响应。
+（6）engage：
+提供外部 API 接口用于启用/禁用自动驾驶控制
+进行安全检查，确保在合适的状态下进行启用操作
+支持自动操作员模式切换
+(7)fail_safe_state：转发故障状态
+(8)initial_pose：提供两个外部 API 服务：手动设置初始位姿和自动设置初始位姿
+(9)localization_score：
+订阅内部定位模块的评分信息（变换概率和最近体素变换似然）
+定时收集评分数据并发布到外部 API
+(10)map: 提供外部 API 接口用于获取 Lanelet 格式的地图 XML 数据
+(11)operator: 提供外部 API 接口用于设置操作员模式和观察者模式
+
+以上接口已废弃，难绷。
+3、autoware_devel/src/universe/autoware_universe/system/autoware_default_adapi_universe/launch/default_adapi.launch.py
+实现各种转发
+
+4、autoware_devel/src/core/autoware_core/api/autoware_adapi_adaptors/src/initial_pose_adaptor.cpp：
+将用户在RViz中设置的初始姿态转换为适合Autoware定位系统的格式，并通过服务调用完成定位初始化。
+
+5、autoware_devel/src/core/autoware_core/api/autoware_adapi_adaptors/src/routing_adaptor.cpp

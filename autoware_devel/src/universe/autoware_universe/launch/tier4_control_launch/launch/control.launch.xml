@@ -78,6 +78,7 @@
       <node_container pkg="rclcpp_components" exec="$(var container_executable)" name="control_container" namespace="">
         <composable_node pkg="autoware_glog_component" plugin="autoware::glog_component::GlogComponent" name="glog_control_container_component"/>
         <!-- shift decider -->
+        <!-- ShiftDecider 是一个智能档位决策节点，通过综合考虑车辆速度、自动驾驶状态和到达目标情况，智能地决定合适的档位，确保车辆安全和驾驶体验。 -->
         <composable_node pkg="autoware_shift_decider" plugin="autoware::shift_decider::ShiftDecider" name="autoware_shift_decider">
           <remap from="input/control_cmd" to="/control/trajectory_follower/control_cmd"/>
           <remap from="input/state" to="/autoware/state"/>
@@ -130,6 +131,10 @@
         </composable_node>
 
         <!-- operation mode transition manager -->
+        <!-- 自动驾驶模式切换: 安全地在手动和自动驾驶模式之间切换
+        紧急模式: 快速切换到停止模式
+        远程控制: 支持远程操作模式切换
+        本地控制: 支持本地操作模式切换 -->
         <composable_node
           pkg="autoware_operation_mode_transition_manager"
           plugin="autoware::operation_mode_transition_manager::$(var operation_mode_transition_manager_plugin)"
@@ -154,6 +159,7 @@
       </node_container>
 
       <!-- trajectory_follower_node -->
+      <!-- 根据参考轨迹计算车辆的横向（转向）和纵向（速度/加速度）控制命令。 -->
       <group if="$(eval &quot;'$(var trajectory_follower_mode)' == 'trajectory_follower_node'&quot;)">
         <load_composable_node target="/control/control_container">
           <composable_node pkg="autoware_trajectory_follower_node" plugin="autoware::motion::control::trajectory_follower_node::Controller" name="controller_node_exe" namespace="trajectory_follower">
@@ -181,6 +187,7 @@
       </group>
 
       <!-- smart_mpc, under development -->
+      <!-- MPC（模型预测控制）轨迹跟随器，使用神经网络模型进行控制决策， -->
       <group if="$(eval &quot;'$(var trajectory_follower_mode)' == 'smart_mpc_trajectory_follower'&quot;)">
         <node pkg="autoware_smart_mpc_trajectory_follower" exec="pympc_trajectory_follower.py" name="controller_node_exe"/>
       </group>
@@ -209,6 +216,7 @@
       </node_container>
 
       <!-- lane departure checker -->
+      <!-- 检测车辆是否偏离车道、是否会偏离车道以及是否即将跨越车道边界。 -->
       <group if="$(var launch_lane_departure_checker)">
         <load_composable_node target="/control/control_check_container">
           <composable_node pkg="autoware_lane_departure_checker" plugin="autoware::lane_departure_checker::LaneDepartureCheckerNode" name="lane_departure_checker_node" namespace="trajectory_follower">
@@ -226,6 +234,7 @@
       </group>
 
       <!-- control validator checker -->
+      <!-- 不仅验证控制命令的及时性，还检查动力学约束、轨迹跟随精度和物理可行性 -->
       <group if="$(var launch_control_validator)">
         <load_composable_node target="/control/control_check_container">
           <composable_node pkg="autoware_control_validator" plugin="autoware::control_validator::ControlValidator" name="control_validator">
@@ -242,6 +251,7 @@
       </group>
 
       <!-- autonomous emergency braking -->
+      <!-- 自主紧急制动系统（AEB），用于检测潜在碰撞风险并执行紧急制动以避免或减轻碰撞。 -->
       <group if="$(var launch_autonomous_emergency_braking)">
         <load_composable_node target="/control/control_check_container">
           <composable_node pkg="autoware_autonomous_emergency_braking" plugin="autoware::motion::control::autonomous_emergency_braking::AEB" name="autonomous_emergency_braking">
@@ -258,6 +268,7 @@
       </group>
 
       <!-- collision detector-->
+      <!-- 碰撞检测器 -->
       <group if="$(var launch_collision_detector)">
         <load_composable_node target="/control/control_check_container">
           <composable_node pkg="autoware_collision_detector" plugin="autoware::collision_detector::CollisionDetectorNode" name="collision_detector">
@@ -270,6 +281,7 @@
       </group>
 
       <!-- obstacle collision checker -->
+      <!-- 检测车辆在规划轨迹上是否会与障碍物发生碰撞。 -->
       <group if="$(var launch_obstacle_collision_checker)">
         <load_composable_node target="/control/control_check_container">
           <composable_node pkg="autoware_obstacle_collision_checker" plugin="autoware::obstacle_collision_checker::ObstacleCollisionCheckerNode" name="obstacle_collision_checker">
@@ -286,6 +298,7 @@
       </group>
 
       <!-- predicted path checker -->
+      <!-- 检测预测轨迹上是否存在障碍物并决定是否需要停车或紧急制动。 -->
       <group if="$(var launch_predicted_path_checker)">
         <load_composable_node target="/control/control_check_container">
           <composable_node pkg="autoware_predicted_path_checker" plugin="autoware::predicted_path_checker::PredictedPathCheckerNode" name="predicted_path_checker">
@@ -303,6 +316,7 @@
     </group>
 
     <!-- control evaluator -->
+    <!-- 收集和评估自动驾驶车辆的各种控制指标，包括轨迹跟踪性能、车辆动力学、边界距离等 -->
     <group if="$(var launch_control_evaluator)">
       <include file="$(find-pkg-share autoware_control_evaluator)/launch/control_evaluator.launch.xml"/>
     </group>

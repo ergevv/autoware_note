@@ -61,6 +61,147 @@ AutowareIvAdapter::AutowareIvAdapter()
   // subscriber
 
   auto durable_qos = rclcpp::QoS{1}.transient_local();
+// 1. 车辆状态相关订阅器
+// 1.1 sub_steer_ - 转向报告
+// 话题: input/steer
+// 消息类型: autoware_vehicle_msgs::msg::SteeringReport
+// 数据来源: 车辆转向角度传感器
+// 内容: 转向角度、转向角速度等信息
+// 1.2 sub_vehicle_cmd_ - 车辆控制命令
+// 话题: input/vehicle_cmd
+// 消息类型: autoware_control_msgs::msg::Control
+// 数据来源: Autoware控制模块
+// 内容: 期望的纵向和横向控制指令
+// QoS: 持久本地存储（durable_qos）
+// 1.3 sub_turn_indicators_ - 转向灯状态
+// 话题: input/turn_indicators
+// 消息类型: autoware_vehicle_msgs::msg::TurnIndicatorsReport
+// 数据来源: 车辆ECU
+// 内容: 转向灯状态（左转、右转、危险）
+// 1.4 sub_hazard_lights_ - 危险灯状态
+// 话题: input/hazard_lights
+// 消息类型: autoware_vehicle_msgs::msg::HazardLightsReport
+// 数据来源: 车辆ECU
+// 内容: 危险灯（双闪）状态
+// 1.5 sub_odometry_ - 里程计数据
+// 话题: input/odometry
+// 消息类型: nav_msgs::msg::Odometry
+// 数据来源: 里程计融合模块
+// 内容: 车辆位姿、线速度、角速度等运动信息
+// 1.6 sub_gear_ - 档位状态
+// 话题: input/gear
+// 消息类型: autoware_vehicle_msgs::msg::GearReport
+// 数据来源: 车辆ECU
+// 内容: 当前档位（前进、倒车、停车等）
+// 2. 车辆系统状态相关订阅器
+// 2.1 sub_battery_ - 电池状态
+// 话题: input/battery
+// 消息类型: tier4_vehicle_msgs::msg::BatteryStatus
+// 数据来源: 电池管理系统（BMS）
+// 内容: 电池电压、电流、温度、SOC等信息
+// 2.2 sub_nav_sat_ - GPS数据
+// 话题: input/nav_sat
+// 消息类型: sensor_msgs::msg::NavSatFix
+// 数据来源: GPS/GNSS接收器
+// 内容: 经纬度、海拔、定位精度等GPS信息
+// 2.3 sub_autoware_state_ - Autoware系统状态
+// 话题: input/autoware_state
+// 消息类型: tier4_system_msgs::msg::AutowareState
+// 数据来源: Autoware状态管理模块
+// 内容: 系统状态（Initializing、Waiting、Driving等）
+// 2.4 sub_control_mode_ - 控制模式
+// 话题: input/control_mode
+// 消息类型: autoware_vehicle_msgs::msg::ControlModeReport
+// 数据来源: 车辆ECU
+// 内容: 控制模式（自动、手动等）
+// 2.5 sub_gate_mode_ - 门模式
+// 话题: input/gate_mode
+// 消息类型: tier4_control_msgs::msg::GateMode
+// 数据来源: 控制门管理器
+// 内容: 当前激活的控制门（自动驾驶、手动驾驶等）
+// QoS: 持久本地存储（durable_qos）
+// 3. 安全与紧急状态相关订阅器
+// 3.1 sub_emergency_ - MRM状态
+// 话题: input/mrm_state
+// 消息类型: autoware_adapi_v1_msgs::msg::MrmState
+// 数据来源: MRM（Minimal Risk Maneuver）模块
+// 内容: 最小风险操作状态
+// 3.2 sub_hazard_status_ - 危险状态
+// 话题: input/hazard_status
+// 消息类型: autoware_system_msgs::msg::HazardStatusStamped
+// 数据来源: 系统诊断模块
+// 内容: 系统危险状态和故障信息
+// 3.3 sub_diagnostics_ - 诊断数据
+// 话题: input/diagnostics
+// 消息类型: diagnostic_msgs::msg::DiagnosticArray
+// 数据来源: 诊断系统
+// 内容: 各个系统和组件的诊断信息
+// 4. 规划与控制相关订阅器
+// 4.1 sub_velocity_factor_ - 速度因子数组
+// 话题: input/velocity_factors
+// 消息类型: autoware_adapi_v1_msgs::msg::VelocityFactorArray
+// 数据来源: 规划模块
+// 内容: 各种速度限制因子，用于聚合停止原因
+// 4.2 sub_max_velocity_ - 最大速度限制
+// 话题: input/max_velocity
+// 消息类型: tier4_api_msgs::msg::VelocityLimit
+// 数据来源: API服务或规划模块
+// 内容: 最大速度限制值
+// 4.3 sub_current_max_velocity_ - 当前最大速度
+// 话题: input/current_max_velocity
+// 消息类型: autoware_internal_planning_msgs::msg::VelocityLimit
+// 数据来源: 规划模块
+// 内容: 当前有效的最大速度限制
+// QoS: 持久本地存储（durable_qos）
+// 4.4 sub_temporary_stop_ - 临时停车命令
+// 话题: input/temporary_stop
+// 消息类型: tier4_api_msgs::msg::StopCommand
+// 数据来源: API服务或规划模块
+// 内容: 临时停车命令
+// 4.5 sub_autoware_traj_ - Autoware轨迹
+// 话题: input/autoware_trajectory
+// 消息类型: autoware_planning_msgs::msg::Trajectory
+// 数据来源: 规划模块
+// 内容: Autoware规划的轨迹
+// 5. 变道与避障相关订阅器
+// 5.1 sub_lane_change_available_ - 变道可用性
+// 话题: input/lane_change_available
+// 消息类型: tier4_planning_msgs::msg::LaneChangeStatus
+// 数据来源: 变道规划模块
+// 内容: 变道是否可用的状态
+// 5.2 sub_lane_change_ready_ - 变道准备状态
+// 话题: input/lane_change_ready
+// 消息类型: tier4_planning_msgs::msg::LaneChangeStatus
+// 数据来源: 变道规划模块
+// 内容: 变道准备状态
+// 5.3 sub_lane_change_candidate_ - 变道候选路径
+// 话题: input/lane_change_candidate_path
+// 消息类型: autoware_planning_msgs::msg::Path
+// 数据来源: 变道规划模块
+// 内容: 变道候选路径
+// 5.4 sub_obstacle_avoid_ready_ - 避障准备状态
+// 话题: input/obstacle_avoid_ready
+// 消息类型: tier4_planning_msgs::msg::IsAvoidancePossible
+// 数据来源: 避障规划模块
+// 内容: 障碍物避让是否可能的状态
+// QoS: 持久本地存储（durable_qos）
+// 5.5 sub_obstacle_avoid_candidate_ - 避障候选路径
+// 话题: input/obstacle_avoid_candidate_path
+// 消息类型: autoware_planning_msgs::msg::Trajectory
+// 数据来源: 避障规划模块
+// 内容: 避障候选轨迹
+// QoS: 持久本地存储（durable_qos）
+// 6. V2X（车对外界通信）相关订阅器
+// 6.1 sub_v2x_command_ - V2X命令
+// 话题: input/v2x_command
+// 消息类型: tier4_v2x_msgs::msg::InfrastructureCommandArray
+// 数据来源: V2X基础设施
+// 内容: 来自基础设施的命令
+// 6.2 sub_v2x_state_ - V2X状态
+// 话题: input/v2x_state
+// 消息类型: tier4_v2x_msgs::msg::VirtualTrafficLightStateArray
+// 数据来源: V2X基础设施
+// 内容: 虚拟交通灯状态
 
   sub_steer_ = this->create_subscription<autoware_vehicle_msgs::msg::SteeringReport>(
     "input/steer", 1, std::bind(&AutowareIvAdapter::callbackSteer, this, _1));
@@ -149,21 +290,21 @@ void AutowareIvAdapter::emergencyParamCheck(const bool emergency_stop_param)
 void AutowareIvAdapter::timerCallback()
 {
   // get current pose
-  getCurrentPose();
+  getCurrentPose(); //获取"map", "base_link"之间变换
 
   // publish vehicle state
-  vehicle_state_publisher_->statePublisher(aw_info_);
+  vehicle_state_publisher_->statePublisher(aw_info_); //将车辆状态信息转换为 API 格式并发布，包含车辆的速度、转向、档位、电池等信息
 
   // publish autoware state
-  autoware_state_publisher_->statePublisher(aw_info_);
+  autoware_state_publisher_->statePublisher(aw_info_); //发布 Autoware 系统状态，包括 Autoware 的运行状态（驾驶中、停止、紧急等）
 
   // publish lane change state
-  lane_change_state_publisher_->statePublisher(aw_info_);
+  lane_change_state_publisher_->statePublisher(aw_info_); //发布器发布变道状态信息，包括变道可用性、准备状态等
 
   // publish obstacle_avoidance state
-  obstacle_avoidance_state_publisher_->statePublisher(aw_info_);
+  obstacle_avoidance_state_publisher_->statePublisher(aw_info_); //发布器发布避障状态，包括避障准备状态、候选路径等信息
 
-  // publish v2x command and state
+  // publish v2x command and state，V2X（车对外界通信）
   if (aw_info_.v2x_command_ptr) {
     pub_v2x_command_->publish(*aw_info_.v2x_command_ptr);
   }

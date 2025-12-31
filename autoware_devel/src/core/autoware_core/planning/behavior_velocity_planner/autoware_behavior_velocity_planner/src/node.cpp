@@ -127,7 +127,8 @@ void BehaviorVelocityPlannerNode::onParam()
   // lock(mutex_);
   planner_data_.velocity_smoother_ =
     std::make_unique<autoware::velocity_smoother::AnalyticalJerkConstrainedSmoother>(*this);
-  planner_data_.velocity_smoother_->setWheelBase(planner_data_.vehicle_info_.wheel_base_m);
+  planner_data_.velocity_smoother_->setWheelBase(
+    planner_data_.vehicle_info_.wheel_base_m);  // 将车辆的轴距（轮距）设置给速度平滑器
 }
 
 void BehaviorVelocityPlannerNode::processNoGroundPointCloud(
@@ -169,7 +170,7 @@ void BehaviorVelocityPlannerNode::processOdometry(const nav_msgs::msg::Odometry:
   // Add velocity to buffer
   planner_data_.velocity_buffer.push_front(*current_velocity);
   const rclcpp::Time now = this->now();
-  while (!planner_data_.velocity_buffer.empty()) {
+  while (!planner_data_.velocity_buffer.empty()) {  // 去除旧数据
     // Check oldest data time
     const auto & s = planner_data_.velocity_buffer.back().header.stamp;
     const auto time_diff =
@@ -186,7 +187,7 @@ void BehaviorVelocityPlannerNode::processOdometry(const nav_msgs::msg::Odometry:
 }
 
 void BehaviorVelocityPlannerNode::processTrafficSignals(
-  const autoware_perception_msgs::msg::TrafficLightGroupArray::ConstSharedPtr msg)
+  const autoware_perception_msgs::msg::TrafficLightGroupArray::ConstSharedPtr msg) //当前可感知或通信可达的信号灯，复杂路口：有直行、左转、右转等多组信号灯
 {
   // clear previous observation
   planner_data_.traffic_light_id_map_raw_.clear();
@@ -247,7 +248,9 @@ bool BehaviorVelocityPlannerNode::processData(rclcpp::Clock clock)
 
   const auto required_subscriptions = planner_manager_.getRequiredSubscriptions();
 
-  is_ready &= getData(planner_data_.current_acceleration, sub_acceleration_, "acceleration");
+  is_ready &= getData(
+    planner_data_.current_acceleration, sub_acceleration_,
+    "acceleration");  // 获取当前加速度数据，更新 is_ready 状态
   is_ready &= getData(
     planner_data_.predicted_objects, sub_predicted_objects_, "predicted_objects",
     required_subscriptions.predicted_objects);
@@ -256,7 +259,7 @@ bool BehaviorVelocityPlannerNode::processData(rclcpp::Clock clock)
     required_subscriptions.occupancy_grid_map);
 
   nav_msgs::msg::Odometry::ConstSharedPtr odometry;
-  is_ready &= getData(odometry, sub_vehicle_odometry_, "odometry");
+  is_ready &= getData(odometry, sub_vehicle_odometry_, "odometry");  // 只订阅了一次
   if (odometry) {
     processOdometry(odometry);
   }
@@ -266,7 +269,7 @@ bool BehaviorVelocityPlannerNode::processData(rclcpp::Clock clock)
     no_ground_pointcloud, sub_no_ground_pointcloud_, "pointcloud",
     required_subscriptions.no_ground_pointcloud);
   if (no_ground_pointcloud) {
-    processNoGroundPointCloud(no_ground_pointcloud);
+    processNoGroundPointCloud(no_ground_pointcloud);  // 转到全局map坐标系
   }
 
   const auto map_data = sub_lanelet_map_.take_data();

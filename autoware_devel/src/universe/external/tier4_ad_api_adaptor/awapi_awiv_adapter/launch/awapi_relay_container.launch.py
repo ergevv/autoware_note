@@ -27,7 +27,7 @@ def generate_launch_description():
     relay_components.append(
         ComposableNode(
             package="topic_tools",
-            plugin="topic_tools::RelayNode",
+            plugin="topic_tools::RelayNode", #将收到的消息以相同的类型和内容发布到另一个话题
             name="route_relay",
             namespace="awapi",
             parameters=[

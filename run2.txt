@@ -308,3 +308,8 @@ Eagleye：日本名古屋大学 Meguro Lab（目黑研究室）开发的开源�
 计算当前时间位移，当前距离 = 原始距离 + 速度（x轴） × 时间间隔
 
 （10）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/trajectory_node.cpp 根据imu的角速度和x轴速度，计算车辆在ENU坐标系下的相对位置变化。区分直线运动和曲线运动两种情况，使用不同的运动模型进行计算，得到更准确的轨迹估计。
+
+(11)autoware_devel/src/universe/external/eagleye/eagleye_rt/src/rtk_dead_reckoning_node.cpp 结合RTK-GNSS精确定位和惯性导航（航位推算）技术，在RTK信号良好时使用RTK定位，在RTK信号丢失时使用速度继续推算位置，速度来自：
+  auto sub2 = node->create_subscription<geometry_msgs::msg::Vector3Stamped>("enu_vel", 1000, enu_vel_callback);
+
+（12）autoware_devel/src/universe/external/eagleye/eagleye_core/navigation/src/rtk_heading.cpp 类似上面的做法，使用ransac算法去除噪点，得到最终的航向角，如果当前航向角无效，则使用imu的角速度预测

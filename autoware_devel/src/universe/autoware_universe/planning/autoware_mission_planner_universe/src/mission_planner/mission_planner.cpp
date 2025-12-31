@@ -76,7 +76,7 @@ MissionPlanner::MissionPlanner(const rclcpp::NodeOptions & options)
 
   planner_ = plugin_loader_.createSharedInstance(
     "autoware::mission_planner_universe::lanelet2::DefaultPlanner");
-  planner_->initialize(this);
+  planner_->initialize(this); //初始化地图
 
   const auto durable_qos = rclcpp::QoS(1).transient_local();
   sub_odometry_ = create_subscription<Odometry>(
@@ -181,16 +181,20 @@ void MissionPlanner::on_odometry(const Odometry::ConstSharedPtr msg)
   }
 }
 
+// mode：操作模式（如 MANUAL-手动模式、AUTONOMOUS-自动驾驶模式等）
+// is_autoware_control_enabled：是否启用了 Autoware 控制
+// is_lane_driving：是否处于车道行驶状态
+// is_parking：是否处于停车状态
 void MissionPlanner::on_operation_mode_state(const OperationModeState::ConstSharedPtr msg)
 {
   operation_mode_state_ = msg;
 }
 
-void MissionPlanner::on_map(const LaneletMapBin::ConstSharedPtr msg)
+void MissionPlanner::on_map(const LaneletMapBin::ConstSharedPtr msg) //存储道路网络结构的核心数据结构，包含车道线、车道、交通规则等各种道路元素。
 {
   map_ptr_ = msg;
   lanelet_map_ptr_ = std::make_shared<lanelet::LaneletMap>();
-  lanelet::utils::conversion::fromBinMsg(*map_ptr_, lanelet_map_ptr_);
+  lanelet::utils::conversion::fromBinMsg(*map_ptr_, lanelet_map_ptr_); //调用 Lanelet2 扩展库中的转换函数，将 ROS 消息格式的二进制地图数据 (LaneletMapBin) 转换为 Lanelet2 内部使用的 LaneletMap 对象。
 }
 
 Pose MissionPlanner::transform_pose(const Pose & pose, const Header & header)
@@ -308,7 +312,7 @@ void MissionPlanner::on_set_lanelet_route(
   const auto route = create_route(*req);
 
   if (route.segments.empty()) {
-    cancel_route();
+    cancel_route(); //使用之前路线
     change_state(is_reroute ? RouteState::SET : RouteState::UNSET);
     throw service_utils::ServiceException(
       ResponseCode::ERROR_PLANNER_FAILED, "The planned route is empty.");
@@ -468,6 +472,19 @@ LaneletRoute MissionPlanner::create_route(const PoseWithUuidStamped & msg)
 
   return create_route(header, waypoints, start_pose, goal_pose, uuid, allow_goal_modification);
 }
+
+// header: 时间戳和坐标系信息
+// segments: 预先规划好的车道段列表
+// goal_pose: 目标位姿
+// uuid: 路线唯一标识符
+// allow_goal_modification: 是否允许修改目标点
+
+// 一个车道段通常包含以下要素：
+
+// 左右边界：定义车道的几何形状
+// 中心线：用于路径规划和车辆导航的参考线
+// 属性信息：速度限制、车道类型、交通规则等
+// 连接关系：前后车道段的拓扑关系
 
 LaneletRoute MissionPlanner::create_route(
   const Header & header, const std::vector<LaneletSegment> & segments, const Pose & goal_pose,

@@ -60,7 +60,7 @@ namespace rviz_plugins
 {
 MissionCheckpointTool::MissionCheckpointTool()
 {
-  shortcut_key_ = 'c';
+  shortcut_key_ = 'c';  
 
   pose_topic_property_ = new rviz_common::properties::StringProperty(
     "Pose Topic", "mission_checkpoint", "The topic on which to publish checkpoint.",
@@ -117,5 +117,7 @@ void MissionCheckpointTool::onPoseSet(double x, double y, double theta)
 
 }  // end namespace rviz_plugins
 
+// 通过 pluginlib 将插件注册到 RViz 系统
+// RViz 在启动时会自动发现并加载此插件
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_plugins::MissionCheckpointTool, rviz_common::Tool)

@@ -9,7 +9,8 @@
     <push-ros-namespace namespace="autoware_api"/>
     <include file="$(find-pkg-share autoware_iv_external_api_adaptor)/launch/external_api_adaptor.launch.py"/>
     <include file="$(find-pkg-share autoware_iv_internal_api_adaptor)/launch/internal_api_adaptor.launch.py"/>
-    <include file="$(find-pkg-share autoware_iv_internal_api_adaptor)/launch/internal_api_relay.launch.xml"/>
+    <!-- 将一个话题的数据原样转发到另一个话题 -->
+    <include file="$(find-pkg-share autoware_iv_internal_api_adaptor)/launch/internal_api_relay.launch.xml"/> 
   </group>
 
   <!-- tier4 autoware api extension -->
