@@ -31,7 +31,7 @@ RoutingAdaptor::RoutingAdaptor(const rclcpp::NodeOptions & options)
   sub_reroute_ = create_subscription<PoseStamped>(
     "~/input/reroute", 3, std::bind(&RoutingAdaptor::on_reroute, this, _1));
   sub_waypoint_ = create_subscription<PoseStamped>(
-    "~/input/waypoint", 10, std::bind(&RoutingAdaptor::on_waypoint, this, _1));
+    "~/input/waypoint", 10, std::bind(&RoutingAdaptor::on_waypoint, this, _1));  // rviz交互得到的
 
   cli_reroute_ = create_client<ChangeRoutePoints::Service>(
     ChangeRoutePoints::name, rmw_qos_profile_services_default);
@@ -64,7 +64,7 @@ void RoutingAdaptor::on_timer()
     ++request_timing_control_;
   }
   if (request_timing_control_ != delay_count) {
-    return;
+    return;  // 防止用户快速点击设置多个目标点时产生过多服务请求,允许用户在短时间内设置多个目标点/检查点
   }
 
   if (!calling_service_) {

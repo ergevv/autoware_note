@@ -89,7 +89,7 @@
 
     <group if="$(eval &quot;'$(var motion_path_smoother_type)' == 'none'&quot;)">
       <load_composable_node target="/planning/scenario_planning/lane_driving/motion_planning/motion_planning_container">
-        <composable_node pkg="topic_tools" plugin="topic_tools::RelayNode" name="path_smoother_relay" namespace="">
+        <composable_node pkg="topic_tools" plugin="topic_tools::RelayNode" name="path_smoother_relay" namespace=""> <!-- 将收到的消息以相同的类型和内容发布到另一个话题 -->
           <!-- params -->
           <param name="input_topic" value="$(var interface_input_topic)"/>
           <param name="output_topic" value="path_smoother/path"/>
@@ -139,6 +139,8 @@
       </load_composable_node>
     </group>
 
+<!-- 当启用路径平滑但不启用路径规划器时，需要将平滑后的路径转换为轨迹
+当路径平滑和路径规划器都不启用时，需要将原始路径直接转换为轨迹 -->
     <group if="$(eval &quot;'$(var motion_path_planner_type)' == 'none' and '$(var motion_path_smoother_type)' != 'none'&quot;)">
       <load_composable_node target="/planning/scenario_planning/lane_driving/motion_planning/motion_planning_container">
         <composable_node pkg="autoware_planning_topic_converter" plugin="autoware::planning_topic_converter::PathToTrajectory" name="smoothed_path_to_trajectory_converter" namespace="">

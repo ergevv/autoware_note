@@ -59,6 +59,10 @@ std::string route_state_to_string(const uint8_t state)
 MissionPlanner::MissionPlanner(const rclcpp::NodeOptions & options)
 : Node("mission_planner", options),
   arrival_checker_(this),
+  // 插件加载器初始化：创建一个插件加载器实例，用于动态加载规划插件
+  // 指定插件库名称：第一个参数 "autoware_mission_planner_universe" 指定了插件所在的库
+  // 指定插件基类类型：第二个参数 "autoware::mission_planner_universe::PlannerPlugin"
+  // 定义了插件的基类类型，所有可加载的插件都必须继承自这个类
   plugin_loader_(
     "autoware_mission_planner_universe", "autoware::mission_planner_universe::PlannerPlugin"),
   tf_buffer_(get_clock()),
@@ -76,7 +80,7 @@ MissionPlanner::MissionPlanner(const rclcpp::NodeOptions & options)
 
   planner_ = plugin_loader_.createSharedInstance(
     "autoware::mission_planner_universe::lanelet2::DefaultPlanner");
-  planner_->initialize(this); //初始化地图
+  planner_->initialize(this);  // 初始化地图
 
   const auto durable_qos = rclcpp::QoS(1).transient_local();
   sub_odometry_ = create_subscription<Odometry>(
@@ -98,7 +102,9 @@ MissionPlanner::MissionPlanner(const rclcpp::NodeOptions & options)
     service_utils::handle_exception(&MissionPlanner::on_set_lanelet_route, this));
   srv_set_waypoint_route = create_service<SetWaypointRoute>(
     "~/set_waypoint_route",
-    service_utils::handle_exception(&MissionPlanner::on_set_waypoint_route, this));
+    service_utils::handle_exception(
+      &MissionPlanner::on_set_waypoint_route,
+      this));  // autoware_devel/src/core/autoware_core/api/autoware_default_adapi/src/routing.cpp
   pub_route_ = create_publisher<LaneletRoute>("~/route", durable_qos);
   pub_state_ = create_publisher<RouteState>("~/state", durable_qos);
 
@@ -190,11 +196,16 @@ void MissionPlanner::on_operation_mode_state(const OperationModeState::ConstShar
   operation_mode_state_ = msg;
 }
 
-void MissionPlanner::on_map(const LaneletMapBin::ConstSharedPtr msg) //存储道路网络结构的核心数据结构，包含车道线、车道、交通规则等各种道路元素。
+void MissionPlanner::on_map(
+  const LaneletMapBin::ConstSharedPtr
+    msg)  // 存储道路网络结构的核心数据结构，包含车道线、车道、交通规则等各种道路元素。
 {
   map_ptr_ = msg;
   lanelet_map_ptr_ = std::make_shared<lanelet::LaneletMap>();
-  lanelet::utils::conversion::fromBinMsg(*map_ptr_, lanelet_map_ptr_); //调用 Lanelet2 扩展库中的转换函数，将 ROS 消息格式的二进制地图数据 (LaneletMapBin) 转换为 Lanelet2 内部使用的 LaneletMap 对象。
+  lanelet::utils::conversion::fromBinMsg(
+    *map_ptr_,
+    lanelet_map_ptr_);  // 调用 Lanelet2 扩展库中的转换函数，将 ROS 消息格式的二进制地图数据
+                        // (LaneletMapBin) 转换为 Lanelet2 内部使用的 LaneletMap 对象。
 }
 
 Pose MissionPlanner::transform_pose(const Pose & pose, const Header & header)
@@ -312,7 +323,7 @@ void MissionPlanner::on_set_lanelet_route(
   const auto route = create_route(*req);
 
   if (route.segments.empty()) {
-    cancel_route(); //使用之前路线
+    cancel_route();  // 使用之前路线
     change_state(is_reroute ? RouteState::SET : RouteState::UNSET);
     throw service_utils::ServiceException(
       ResponseCode::ERROR_PLANNER_FAILED, "The planned route is empty.");
@@ -512,7 +523,7 @@ LaneletRoute MissionPlanner::create_route(
   }
   points.push_back(transform_pose(goal_pose, header));
 
-  LaneletRoute route = planner_->plan(points);
+  LaneletRoute route = planner_->plan(points);  // 计算segments
   route.header.stamp = header.stamp;
   route.header.frame_id = map_frame_;
   route.uuid = uuid;

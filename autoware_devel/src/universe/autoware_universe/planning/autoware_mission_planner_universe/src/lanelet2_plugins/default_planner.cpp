@@ -81,7 +81,7 @@ void DefaultPlanner::initialize_common(rclcpp::Node * node)
   pub_goal_footprint_marker_ =
     node_->create_publisher<MarkerArray>("~/debug/goal_footprint", durable_qos);
 
-  vehicle_info_ = autoware::vehicle_info_utils::VehicleInfoUtils(*node_).getVehicleInfo();
+  vehicle_info_ = autoware::vehicle_info_utils::VehicleInfoUtils(*node_).getVehicleInfo();//通过 VehicleInfoUtils 类获取车辆参数（如尺寸、轴距等），存储到成员变量 vehicle_info_
   param_.goal_angle_threshold_deg = node_->declare_parameter<double>("goal_angle_threshold_deg");
   param_.enable_correct_goal_pose = node_->declare_parameter<bool>("enable_correct_goal_pose");
   param_.consider_no_drivable_lanes = node_->declare_parameter<bool>("consider_no_drivable_lanes");

@@ -19,3 +19,31 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launc
 *5、autoware_devel/src/core/autoware_core/planning/behavior_velocity_planner/autoware_behavior_velocity_planner/src/node.cpp
 
 *6、autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_planner/src/behavior_path_planner_node.cpp
+
+7、autoware_devel/src/universe/autoware_universe/perception/autoware_map_based_prediction/src/path_generator.cpp
+
+8、autoware_devel/src/universe/autoware_universe/perception/autoware_compare_map_segmentation/src/voxel_distance_based_compare_map_filter/node.cpp
+
+9、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/vector_map_filter/vector_map_inside_area_filter_node.cpp
+
+10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp
+
+11、autoware_devel/src/universe/autoware_universe/planning/autoware_path_optimizer/include/autoware/path_optimizer/node.hpp
+
+12、autoware_devel/src/universe/autoware_universe/planning/sampling_based_planner/autoware_path_sampler/include/autoware_path_sampler/node.hpp
+
+13、autoware_devel/src/core/autoware_core/planning/autoware_planning_topic_converter/src/path_to_trajectory.cpp
+
+14、autoware_devel/src/core/autoware_core/planning/motion_velocity_planner/autoware_motion_velocity_planner/src/node.cpp
+
+15、autoware_devel/src/universe/autoware_universe/planning/autoware_surround_obstacle_checker/src/node.cpp
+
+16、autoware_devel/src/universe/autoware_universe/planning/autoware_costmap_generator/src/costmap_generator.cpp
+
+17、autoware_devel/src/universe/autoware_universe/planning/autoware_freespace_planner/src/autoware_freespace_planner/freespace_planner_node.cpp
+
+18、autoware_devel/src/universe/autoware_universe/planning/planning_validator/autoware_planning_validator/src/node.cpp 对规划模块生成的轨迹进行一系列检查，确保轨迹符合物理约束和安全要求
+
+19、autoware_devel/src/universe/autoware_universe/evaluator/autoware_planning_evaluator/src/planning_evaluator_node.cpp
+
+20、autoware_devel/src/universe/autoware_universe/planning/autoware_remaining_distance_time_calculator/src/remaining_distance_time_calculator_node.cpp 计算自动驾驶车辆到达目标点剩余距离和时间

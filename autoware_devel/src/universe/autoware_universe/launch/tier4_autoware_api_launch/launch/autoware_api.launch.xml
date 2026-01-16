@@ -34,6 +34,7 @@
   </group>
 
   <!-- rosbridge -->
+  <!-- rosbridge_server ROS（Robot Operating System，机器人操作系统）中的一个核心组件，启动一个 WebSocket 服务器（默认端口 9090），接收来自外部客户端的 JSON 格式消息，并将其转换为 ROS 内部的消息、服务调用或参数操作，反之亦将 ROS 的响应转换回 JSON 返回给客户端 -->
   <group if="$(var rosbridge_enabled)">
     <include file="$(find-pkg-share rosbridge_server)/launch/rosbridge_websocket_launch.xml">
       <arg name="respawn" value="$(var rosbridge_respawn)"/>

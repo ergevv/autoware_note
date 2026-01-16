@@ -60,7 +60,7 @@ namespace rviz_plugins
 {
 MissionCheckpointTool::MissionCheckpointTool()
 {
-  shortcut_key_ = 'c';  
+  shortcut_key_ = 'c';
 
   pose_topic_property_ = new rviz_common::properties::StringProperty(
     "Pose Topic", "mission_checkpoint", "The topic on which to publish checkpoint.",
@@ -95,7 +95,7 @@ void MissionCheckpointTool::updateTopic()
   clock_ = raw_node->get_clock();
 }
 
-void MissionCheckpointTool::onPoseSet(double x, double y, double theta)
+void MissionCheckpointTool::onPoseSet(double x, double y, double theta)  // rviz的重载函数
 {
   // pose
   std::string fixed_frame = context_->getFixedFrame().toStdString();

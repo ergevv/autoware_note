@@ -1,0 +1,45 @@
+autoware_devel/src/universe/autoware_universe/launch/tier4_control_launch/launch/control.launch.xml
+
+1、autoware_devel/src/universe/autoware_universe/control/autoware_shift_decider/src/autoware_shift_decider.cpp
+综合考虑车辆速度、自动驾驶状态和到达目标情况，智能地决定合适的档位
+
+2、autoware_devel/src/universe/autoware_universe/control/autoware_vehicle_cmd_gate/src/vehicle_cmd_gate.cpp
+
+3、autoware_devel/src/universe/autoware_universe/control/autoware_operation_mode_transition_manager/src/node.cpp
+自动驾驶模式切换: 安全地在手动和自动驾驶模式之间切换
+        紧急模式: 快速切换到停止模式
+        远程控制: 支持远程操作模式切换
+        本地控制: 支持本地操作模式切换 
+
+4、autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
+根据参考轨迹计算车辆的横向（转向）和纵向（速度/加速度）控制命令
+
+5、autoware_devel/src/universe/autoware_universe/control/autoware_smart_mpc_trajectory_follower/scripts/pympc_trajectory_follower.py
+MPC（模型预测控制）轨迹跟随器，使用神经网络模型进行控制决策
+
+6、autoware_devel/src/universe/autoware_universe/control/autoware_external_cmd_selector/launch/external_cmd_selector.launch.py->autoware_devel/src/universe/autoware_universe/control/autoware_external_cmd_selector/src/autoware_external_cmd_selector/external_cmd_selector_node.cpp
+用于自动驾驶车辆的远程操控场景，允许在本地操作员和远程操作员之间切换控制权
+
+7、autoware_devel/src/universe/autoware_universe/vehicle/autoware_external_cmd_converter/launch/external_cmd_converter.launch.py->autoware_devel/src/universe/autoware_universe/vehicle/autoware_external_cmd_converter/src/node.cpp
+将外部输入的踏板命令（油门、刹车）转换为车辆控制命令。
+
+8、autoware_devel/src/universe/autoware_universe/control/autoware_lane_departure_checker/src/lane_departure_checker_node/lane_departure_checker_node.cpp
+检测车辆是否偏离车道、是否会偏离车道以及是否即将跨越车道边界。
+
+9、autoware_devel/src/universe/autoware_universe/control/autoware_control_validator/src/control_validator.cpp
+不仅验证控制命令的及时性，还检查动力学约束、轨迹跟随精度和物理可行性
+
+10、autoware_devel/src/universe/autoware_universe/control/autoware_autonomous_emergency_braking/src/node.cpp
+自主紧急制动系统（AEB），用于检测潜在碰撞风险并执行紧急制动以避免或减轻碰撞。
+
+11、autoware_devel/src/universe/autoware_universe/control/autoware_collision_detector/src/node.cpp
+碰撞检测器
+
+12、autoware_devel/src/universe/autoware_universe/control/autoware_obstacle_collision_checker/src/obstacle_collision_checker_node.cpp
+检测车辆在规划轨迹上是否会与障碍物发生碰撞
+
+13、autoware_devel/src/universe/autoware_universe/control/autoware_predicted_path_checker/src/predicted_path_checker_node/predicted_path_checker_node.cpp
+检测预测轨迹上是否存在障碍物并决定是否需要停车或紧急制动
+
+14、autoware_devel/src/universe/autoware_universe/evaluator/autoware_control_evaluator/src/control_evaluator_node.cpp
+收集和评估自动驾驶车辆的各种控制指标，包括轨迹跟踪性能、车辆动力学、边界距离等

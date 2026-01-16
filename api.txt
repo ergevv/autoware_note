@@ -1,3 +1,5 @@
+autoware_devel/src/universe/autoware_universe/launch/tier4_autoware_api_launch/launch/autoware_api.launch.xml
+
 1、autoware_devel/src/universe/external/tier4_ad_api_adaptor/awapi_awiv_adapter/src/awapi_awiv_adapter_node.cpp
 将来自Autoware各个模块的数据收集到 aw_info_ 结构中，然后通过定时回调函数发布为API格式。
 
@@ -34,8 +36,14 @@
 以上接口已废弃，难绷。
 3、autoware_devel/src/universe/autoware_universe/system/autoware_default_adapi_universe/launch/default_adapi.launch.py
 实现各种转发
+(1)autoware_devel/src/core/autoware_core/api/autoware_default_adapi/src/routing.cpp
+
 
 4、autoware_devel/src/core/autoware_core/api/autoware_adapi_adaptors/src/initial_pose_adaptor.cpp：
 将用户在RViz中设置的初始姿态转换为适合Autoware定位系统的格式，并通过服务调用完成定位初始化。
 
 5、autoware_devel/src/core/autoware_core/api/autoware_adapi_adaptors/src/routing_adaptor.cpp
+负责将用户界面（如RViz）的路由请求转换为Autoware系统的路由服务调用，自动驾驶导航: 用户在RViz中设置目的地，路径规划: 添加途经点进行复杂路径规划，路线重规划: 在行驶过程中调整目标点
+
+6、autoware_devel/src/universe/external/tier4_ad_api_adaptor/autoware_iv_external_api_adaptor/src/rtc_controller.cpp
+验证、转发RTC相关接口

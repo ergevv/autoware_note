@@ -93,5 +93,14 @@
         "variant": "cpp"
     },
     "git.ignoreLimitWarning": true,
-    "C_Cpp.default.compileCommands": "/home/developer/autoware/autoware_devel/build/compile_commands.json"
+    "C_Cpp.default.compileCommands": "/home/developer/autoware/autoware_devel/build/compile_commands.json",
+    "ROS2.distro": "humble",
+    "python.autoComplete.extraPaths": [
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
 }

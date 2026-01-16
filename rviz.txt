@@ -1,0 +1,7 @@
+1、autoware_devel/src/core/autoware_rviz_plugins/autoware_planning_rviz_plugin/src/mission_checkpoint/mission_checkpoint.cpp
+用户可以通过按 'c' 键快速激活此工具
+激活后可以通过鼠标在 RViz 视图中设置检查点
+
+2、autoware_devel/src/universe/autoware_universe/visualization/tier4_adapi_rviz_plugin/src/route_tool.cpp
+用户可以通过按 'r' 键快速激活此工具
+激活后可以通过鼠标在 RViz 视图中设置检查点

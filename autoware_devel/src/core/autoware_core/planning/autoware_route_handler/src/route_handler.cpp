@@ -766,7 +766,7 @@ lanelet::ConstLanelets RouteHandler::getRoadLaneletsAtPose(const Pose & pose) co
 {
   lanelet::ConstLanelets road_lanelets_at_pose;
   const lanelet::BasicPoint2d p{pose.position.x, pose.position.y};
-  const auto lanelets_at_pose = lanelet_map_ptr_->laneletLayer.search(lanelet::BoundingBox2d(p));
+  const auto lanelets_at_pose = lanelet_map_ptr_->laneletLayer.search(lanelet::BoundingBox2d(p));  //返回搜索到的所有lanelet
   for (const auto & lanelet_at_pose : lanelets_at_pose) {
     // confirm that the pose is inside the lanelet since "search" does an approximation with boxes
     const auto is_pose_inside_lanelet = lanelet::geometry::inside(lanelet_at_pose, p);
