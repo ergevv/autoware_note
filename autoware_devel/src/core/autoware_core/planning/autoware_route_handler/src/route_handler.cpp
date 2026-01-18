@@ -766,7 +766,8 @@ lanelet::ConstLanelets RouteHandler::getRoadLaneletsAtPose(const Pose & pose) co
 {
   lanelet::ConstLanelets road_lanelets_at_pose;
   const lanelet::BasicPoint2d p{pose.position.x, pose.position.y};
-  const auto lanelets_at_pose = lanelet_map_ptr_->laneletLayer.search(lanelet::BoundingBox2d(p));  //返回搜索到的所有lanelet
+  const auto lanelets_at_pose =
+    lanelet_map_ptr_->laneletLayer.search(lanelet::BoundingBox2d(p));  // 返回搜索到的所有lanelet
   for (const auto & lanelet_at_pose : lanelets_at_pose) {
     // confirm that the pose is inside the lanelet since "search" does an approximation with boxes
     const auto is_pose_inside_lanelet = lanelet::geometry::inside(lanelet_at_pose, p);
@@ -995,6 +996,7 @@ lanelet::ConstLanelets RouteHandler::get_shoulder_lanelet_sequence(
   return lanelet_sequence;
 }
 
+// 在当前路线（route）覆盖的所有车道中，找到距离指定搜索位置最近的那个车道。
 bool RouteHandler::getClosestLaneletWithinRoute(
   const Pose & search_pose, lanelet::ConstLanelet * closest_lanelet) const
 {
@@ -1028,7 +1030,7 @@ bool RouteHandler::getClosestPreferredLaneletWithinRoute(
   const Pose & search_pose, lanelet::ConstLanelet * closest_lanelet) const
 {
   return lanelet::utils::query::getClosestLanelet(
-    preferred_lanelets_, search_pose, closest_lanelet);
+    preferred_lanelets_, search_pose, closest_lanelet); //autoware_devel/src/core/autoware_lanelet2_extension/autoware_lanelet2_extension/lib/query.cpp，找到距离preferred_lanelets_搜索位置最近的车道
 }
 
 bool RouteHandler::getClosestLaneletWithConstrainsWithinRoute(
@@ -1860,8 +1862,9 @@ void RouteHandler::removeOverlappedCenterlineWithWaypoints(
   int target_lanelet_sequence_index = static_cast<int>(piecewise_waypoints_lanelet_sequence_index);
   while (isIndexWithinVector(lanelet_sequence, target_lanelet_sequence_index)) {
     auto & target_piecewise_ref_points = piecewise_ref_points_vec.at(target_lanelet_sequence_index);
-    const double target_lanelet_arc_length = boost::geometry::length(lanelet::utils::to2D(
-      lanelet_sequence.at(target_lanelet_sequence_index).centerline().basicLineString()));
+    const double target_lanelet_arc_length = boost::geometry::length(
+      lanelet::utils::to2D(
+        lanelet_sequence.at(target_lanelet_sequence_index).centerline().basicLineString()));
 
     // search overlapped ref points in the target lanelet
     std::vector<size_t> overlapped_ref_points_indices{};
@@ -2027,9 +2030,9 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
     candidates.erase(
       std::remove_if(
         candidates.begin(), candidates.end(), [&](const auto & l) { return !isRoadLanelet(l); }),
-      candidates.end());
+      candidates.end());  // 移除所有不是道路车道（road lanelet）的车道，只保留道路类型的车道。
     if (lanelet::utils::query::getClosestLanelet(candidates, start_checkpoint, &start_lanelet))
-      start_lanelets = {start_lanelet};
+      start_lanelets = {start_lanelet};  // 从候选车道中找到距离起始检查点最近的一个
   }
   if (start_lanelets.empty()) {
     RCLCPP_WARN_STREAM(
@@ -2056,6 +2059,9 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
   // this is to select the same lane as much as possible when rerouting with waypoints.
   const auto findGoalClosestPreferredLanelet = [&]() -> std::optional<lanelet::ConstLanelet> {
     lanelet::ConstLanelet closest_lanelet;
+    // 首先尝试在之前的首选车道中查找最接近目标点的车道，目的地不是哪里都可以停车的，
+    // 检查该车道是否在候选列表中
+    // 检查目标点是否确实位于该车道内
     if (getClosestPreferredLaneletWithinRoute(goal_checkpoint, &closest_lanelet)) {
       if (std::find(candidates.begin(), candidates.end(), closest_lanelet) != candidates.end()) {
         if (lanelet::utils::isInLanelet(goal_checkpoint, closest_lanelet)) {
@@ -2063,8 +2069,11 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
         }
       }
     }
+    // 在当前路线（route）覆盖的所有车道中，找到距离指定搜索位置最近的那个车道。优先选择与之前路线相同的车道，以实现平滑重路由，动态障碍物绕行：需要临时改变路径但希望回到原来的车道
     if (getClosestLaneletWithinRoute(goal_checkpoint, &closest_lanelet)) {
-      if (std::find(candidates.begin(), candidates.end(), closest_lanelet) != candidates.end()) {
+      if (
+        std::find(candidates.begin(), candidates.end(), closest_lanelet) !=
+        candidates.end()) {  // 判断是否在候选车道中
         if (lanelet::utils::isInLanelet(goal_checkpoint, closest_lanelet)) {
           std::stringstream preferred_lanelets_str;
           for (const auto & preferred_lanelet : preferred_lanelets_) {
@@ -2084,7 +2093,8 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
   if (auto closest_lanelet = findGoalClosestPreferredLanelet()) {
     goal_lanelet = closest_lanelet.value();
   } else {
-    if (!lanelet::utils::query::getClosestLanelet(candidates, goal_checkpoint, &goal_lanelet)) {
+    if (!lanelet::utils::query::getClosestLanelet(
+          candidates, goal_checkpoint, &goal_lanelet)) {  // 直接在地图中找最近的车道
       RCLCPP_WARN_STREAM(
         logger_, "Failed to find closest lanelet."
                    << std::endl
@@ -2105,12 +2115,18 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
   for (const auto & st_llt : start_lanelets) {
     // check if the angle difference between start_checkpoint and start lanelet center line
     // orientation is in yaw_threshold range
+    // 该函数会找到距离输入位置点最近的车道中心线上的点
+    // 然后计算该点处中心线的切线方向
+    // 返回切线方向相对于坐标系X轴的角度值
     double lanelet_angle = lanelet::utils::getLaneletAngle(st_llt, start_checkpoint.position);
     double pose_yaw = tf2::getYaw(start_checkpoint.orientation);
     double angle_diff = std::abs(autoware_utils_math::normalize_radian(lanelet_angle - pose_yaw));
 
     bool is_proper_angle = angle_diff <= std::abs(yaw_threshold);
 
+    // 从多个候选的起始车道（start_lanelets）中选择一个
+    // 对每个候选起始车道调用 getRoute 函数寻找通往目标车道的路径
+    // 检查路径是否有效且角度合适
     optional_route = routing_graph_ptr_->getRoute(st_llt, goal_lanelet, 0);
     if (!optional_route || !is_proper_angle) {
       RCLCPP_DEBUG_STREAM(
@@ -2125,14 +2141,22 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
     is_route_found = true;
     lanelet::ConstLanelet preferred_lane{};
     if (getClosestPreferredLaneletWithinRoute(start_checkpoint, &preferred_lane)) {
+      // preferred_lane 是之前确定的车辆应该行驶的首选车道
+      // 比较当前候选车道 st_llt 是否就是首选车道
+      // 如果当前候选车道恰好是首选车道，则：
+      // 直接采用这条路径的最短路径
+      // 设置起始车道
+      // 立即跳出循环，不再考虑其他候选车道
       if (st_llt.id() == preferred_lane.id()) {
+        // 在调用 routing_graph_ptr_->getRoute(st_llt, goal_lanelet, 0) 时，路由图会计算从起始车道到目标车道的所有可能路径
+        // shortestPath() 方法返回其中成本最低（通常是最短距离）的路径
         shortest_path = optional_route->shortestPath();
         start_lanelet = st_llt;
         break;
       }
     }
-    const double optional_route_length = optional_route->length2d();
-    const double optional_route_cost = optional_route_length + angle_diff_weight * angle_diff;
+    const double optional_route_length = optional_route->length2d(); //计算从当前候选起始车道到目标车道的路径总长度
+    const double optional_route_cost = optional_route_length + angle_diff_weight * angle_diff; //优先选择与车辆当前朝向一致的车道，避免突然转向
     RCLCPP_DEBUG(
       logger_, "Lanelet ID %ld: Route length = %.1f, Angle Diff = %.4f rad, Route cost = %.2f",
       st_llt.id(), optional_route_length, angle_diff, optional_route_cost);
@@ -2151,7 +2175,7 @@ bool RouteHandler::planPathLaneletsBetweenCheckpoints(
         if (drivable_lane_path) return *drivable_lane_path;
       }
       return shortest_path;
-    }();
+    }(); //最后的()调用了这个函数
 
     path_lanelets->reserve(path.size());
     for (const auto & llt : path) {

@@ -706,6 +706,7 @@ lanelet::ArcCoordinates getArcCoordinatesOnEgoCenterline(
   return arc_coordinates;
 }
 
+// 给定的线串(linestring)中找出距离搜索点(search_pt)最近的线段。它通过遍历线串中的每一对相邻点，计算它们形成的线段到搜索点的距离，并保留距离最小的线段
 lanelet::ConstLineString3d getClosestSegment(
   const lanelet::BasicPoint2d & search_pt, const lanelet::ConstLineString3d & linestring)
 {

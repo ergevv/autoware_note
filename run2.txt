@@ -313,3 +313,12 @@ Eagleye：日本名古屋大学 Meguro Lab（目黑研究室）开发的开源�
   auto sub2 = node->create_subscription<geometry_msgs::msg::Vector3Stamped>("enu_vel", 1000, enu_vel_callback);
 
 （12）autoware_devel/src/universe/external/eagleye/eagleye_core/navigation/src/rtk_heading.cpp 类似上面的做法，使用ransac算法去除噪点，得到最终的航向角，如果当前航向角无效，则使用imu的角速度预测
+（11）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/rtk_dead_reckoning_node.cpp
+
+（13）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/position_node.cpp 融合GNSS绝对位置和enu_vel的速度（没考虑角度，应该是之前用角度融合过的速度），计算当前位置
+
+（14）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/position_interpolate_node.cpp 与上示差不多，不过频率更高？position.cpp 的预测是为了支持精确的位置解算算法，它是离散的、高精度的位置解算过程的一部分position_interpolate.cpp 的预测是为了提供连续的位置输出，它是在已知位置点之间进行插值和外推。它们构成了一个完整的定位解决方案：前者确保位置精度，后者确保位置连续性。
+
+（15）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/smoothing_node.cpp 对GNSS位置进行平滑处理（求平均值），去除噪声
+
+（16）autoware_devel/src/universe/external/eagleye/eagleye_rt/src/height_node.cpp

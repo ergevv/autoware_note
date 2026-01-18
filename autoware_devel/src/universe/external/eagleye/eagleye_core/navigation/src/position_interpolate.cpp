@@ -31,6 +31,16 @@
 #include "eagleye_coordinate/eagleye_coordinate.hpp"
 #include "eagleye_navigation/eagleye_navigation.hpp"
 
+
+// enu_absolute_pos: ENU绝对位置
+// enu_vel: ENU速度向量
+// gnss_smooth_pos: 平滑后的GNSS位置
+// height: 高度信息
+// position_interpolate_parameter: 插值参数
+// position_interpolate_status: 插值状态（输入输出）
+// enu_absolute_pos_interpolate: 插值后的位置结果（输出）
+// eagleye_fix: 导航卫星定位结果（输出）
+
 void position_interpolate_estimate(eagleye_msgs::msg::Position enu_absolute_pos, geometry_msgs::msg::Vector3Stamped enu_vel, eagleye_msgs::msg::Position gnss_smooth_pos, eagleye_msgs::msg::Height height,PositionInterpolateParameter position_interpolate_parameter, PositionInterpolateStatus* position_interpolate_status, eagleye_msgs::msg::Position* enu_absolute_pos_interpolate,sensor_msgs::msg::NavSatFix* eagleye_fix)
 {
 

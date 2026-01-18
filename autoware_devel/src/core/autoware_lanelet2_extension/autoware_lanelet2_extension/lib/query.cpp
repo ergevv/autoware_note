@@ -949,7 +949,7 @@ bool query::getClosestLanelet(
     return found;
   }
 
-  // find by angle
+  // find by angle，备用车道中角度相差最小的车道
   {
     double min_angle = std::numeric_limits<double>::max();
     double pose_yaw = tf2::getYaw(search_pose.orientation);
