@@ -966,7 +966,12 @@ PathWithLaneId getCenterLinePathFromLanelet(
     *route_handler, reference_lanes, current_pose, p.backward_path_length, p.forward_path_length,
     p);
 }
-
+// route_handler: 路由处理器对象，用于获取路径相关信息。
+// lanelet_sequence: 一系列连续的车道（lanelet），表示当前规划的路径段。
+// pose: 当前车辆的姿态（位置和方向）。
+// backward_path_length: 向后延伸的路径长度（相对于当前位置）。
+// forward_path_length: 向前延伸的路径长度（相对于当前位置）。
+// parameter: 规划参数结构体，包含路径间隔、是否启用 Akima 样条插值等配置。
 PathWithLaneId getCenterLinePath(
   const RouteHandler & route_handler, const lanelet::ConstLanelets & lanelet_sequence,
   const Pose & pose, const double backward_path_length, const double forward_path_length,
@@ -979,16 +984,17 @@ PathWithLaneId getCenterLinePath(
     return reference_path;
   }
 
-  const auto arc_coordinates = lanelet::utils::getArcCoordinates(lanelet_sequence, pose);
+  const auto arc_coordinates = lanelet::utils::getArcCoordinates(lanelet_sequence, pose); //初始车道到车身位置的弧长
   const double s = arc_coordinates.length;
   const double s_backward = std::max(0., s - backward_path_length);
   double s_forward = s + forward_path_length;
 
   if (route_handler.isDeadEndLanelet(lanelet_sequence.back())) {
     const auto lane_length = lanelet::utils::getLaneletLength2d(lanelet_sequence);
-    s_forward = std::clamp(s_forward, 0.0, lane_length);
+    s_forward = std::clamp(s_forward, 0.0, lane_length); //将s_forward限制到0~lane_length
   }
 
+  //如果当前车道属于目标区域，则将终点弧长限制为目标点的弧长。
   if (route_handler.isInGoalRouteSection(lanelet_sequence.back())) {
     const auto goal_arc_coordinates =
       lanelet::utils::getArcCoordinates(lanelet_sequence, route_handler.getGoalPose());

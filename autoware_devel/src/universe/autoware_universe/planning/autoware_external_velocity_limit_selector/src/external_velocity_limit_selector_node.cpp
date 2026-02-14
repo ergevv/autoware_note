@@ -121,7 +121,7 @@ ExternalVelocityLimitSelectorNode::ExternalVelocityLimitSelectorNode(
   // Input
   sub_external_velocity_limit_from_api_ = this->create_subscription<VelocityLimit>(
     "input/velocity_limit_from_api", rclcpp::QoS{1}.transient_local(),
-    std::bind(&ExternalVelocityLimitSelectorNode::onVelocityLimitFromAPI, this, _1));
+    std::bind(&ExternalVelocityLimitSelectorNode::onVelocityLimitFromAPI, this, _1)); //获取外部速度限制
 
   sub_external_velocity_limit_from_internal_ = this->create_subscription<VelocityLimit>(
     "input/velocity_limit_from_internal", rclcpp::QoS{10}.transient_local(),
@@ -142,6 +142,10 @@ ExternalVelocityLimitSelectorNode::ExternalVelocityLimitSelectorNode(
     this->get_node_parameters_interface());
 }
 
+// 函数	操作类型	发送者处理	数据流向
+// onVelocityLimitFromAPI	添加/更新	固定为"api"	API → 系统
+// onVelocityLimitFromInternal	添加/更新	使用消息中的发送者	内部 → 系统
+// onVelocityLimitClearCommand	删除	使用命令中的发送者	清除特定条目
 void ExternalVelocityLimitSelectorNode::onVelocityLimitFromAPI(
   const VelocityLimit::ConstSharedPtr msg)
 {

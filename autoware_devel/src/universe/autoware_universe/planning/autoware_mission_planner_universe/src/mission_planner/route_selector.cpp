@@ -92,6 +92,11 @@ RouteSelector::RouteSelector(const rclcpp::NodeOptions & options)
   using std::placeholders::_2;
   const auto service_qos = rmw_qos_profile_services_default;
   const auto durable_qos = rclcpp::QoS(1).transient_local();
+// 方面	 主路由	MRM 路由
+// 用途	长期、主要导航路径	应急、临时路径调整
+// 激活时状态	INTERRUPTED 或 UNSET	活跃状态
+// 路由恢复	MRM 结束后恢复主路由	执行完毕后返回主路由
+// 请求处理	保存请求以便后续恢复	直接处理并转发到规划器
 
   // Init main route interface.
   main_.srv_clear_route = create_service<ClearRoute>(
@@ -102,13 +107,13 @@ RouteSelector::RouteSelector(const rclcpp::NodeOptions & options)
     service_utils::handle_exception(&RouteSelector::on_set_waypoint_route_main, this));
   main_.srv_set_lanelet_route = create_service<SetLaneletRoute>(
     "~/main/set_lanelet_route",
-    service_utils::handle_exception(&RouteSelector::on_set_lanelet_route_main, this));
+    service_utils::handle_exception(&RouteSelector::on_set_lanelet_route_main, this)); //同上
   main_.pub_state_ = create_publisher<RouteState>("~/main/state", durable_qos);
   main_.pub_route_ = create_publisher<LaneletRoute>("~/main/route", durable_qos);
 
   // Init mrm route interface.
   mrm_.srv_clear_route = create_service<ClearRoute>(
-    "~/mrm/clear_route", service_utils::handle_exception(&RouteSelector::on_clear_route_mrm, this));
+    "~/mrm/clear_route", service_utils::handle_exception(&RouteSelector::on_clear_route_mrm, this)); //恢复主路径
   mrm_.srv_set_waypoint_route = create_service<SetWaypointRoute>(
     "~/mrm/set_waypoint_route",
     service_utils::handle_exception(&RouteSelector::on_set_waypoint_route_mrm, this));
@@ -174,6 +179,12 @@ void RouteSelector::on_clear_route_main(
   main_request_ = std::monostate{};
   main_.change_route();
 
+// 方面	 主路由	MRM 路由
+// 用途	长期、主要导航路径	应急、临时路径调整
+// 激活时状态	INTERRUPTED 或 UNSET	活跃状态
+// 路由恢复	MRM 结束后恢复主路由	执行完毕后返回主路由
+// 请求处理	保存请求以便后续恢复	直接处理并转发到规划器
+
   // During MRM, only change the state.
   if (mrm_operating_) {
     main_.change_state(RouteState::UNSET);
@@ -191,11 +202,11 @@ void RouteSelector::on_set_waypoint_route_main(
   // Save the request and clear old route to resume from MRM.
   req->uuid = uuid::generate_if_empty(req->uuid);
   main_request_ = req;
-  main_.change_route();
+  main_.change_route(); //清除主路由
 
   // During MRM, only change the state.
   if (mrm_operating_) {
-    main_.change_state(RouteState::INTERRUPTED);
+    main_.change_state(RouteState::INTERRUPTED); //将主路由状态设置为 INTERRUPTED（表示被中断）
     res->status.success = true;
     return;
   }
@@ -241,7 +252,7 @@ void RouteSelector::on_set_waypoint_route_mrm(
   res->status = service_utils::sync_call(cli_set_waypoint_route_, req);
 
   if (res->status.success) {
-    mrm_operating_ = true;
+    mrm_operating_ = true; //进入MRM模式
     if (main_.get_state() != RouteState::UNSET) {
       main_.change_state(RouteState::INTERRUPTED);
     }

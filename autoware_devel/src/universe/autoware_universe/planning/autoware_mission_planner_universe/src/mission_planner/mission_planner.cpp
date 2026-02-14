@@ -80,31 +80,31 @@ MissionPlanner::MissionPlanner(const rclcpp::NodeOptions & options)
 
   planner_ = plugin_loader_.createSharedInstance(
     "autoware::mission_planner_universe::lanelet2::DefaultPlanner");
-  planner_->initialize(this);  // 初始化地图
+  planner_->initialize(this);  // 初始化地图，为路径生成做准备
 
   const auto durable_qos = rclcpp::QoS(1).transient_local();
   sub_odometry_ = create_subscription<Odometry>(
-    "~/input/odometry", rclcpp::QoS(1), std::bind(&MissionPlanner::on_odometry, this, _1));
+    "~/input/odometry", rclcpp::QoS(1), std::bind(&MissionPlanner::on_odometry, this, _1)); //订阅里程计数据，未处理，当前车的位置，可以用来作为起点，同时判断是都到达目的地
   sub_operation_mode_state_ = create_subscription<OperationModeState>(
     "~/input/operation_mode_state", rclcpp::QoS{1}.transient_local(),
-    std::bind(&MissionPlanner::on_operation_mode_state, this, _1));
+    std::bind(&MissionPlanner::on_operation_mode_state, this, _1)); 
   sub_vector_map_ = create_subscription<LaneletMapBin>(
     "~/input/vector_map", durable_qos, std::bind(&MissionPlanner::on_map, this, _1));
   pub_marker_ = create_publisher<MarkerArray>("~/debug/route_marker", durable_qos);
 
   // NOTE: The route interface should be mutually exclusive by callback group.
   sub_modified_goal_ = create_subscription<PoseWithUuidStamped>(
-    "~/input/modified_goal", durable_qos, std::bind(&MissionPlanner::on_modified_goal, this, _1));
+    "~/input/modified_goal", durable_qos, std::bind(&MissionPlanner::on_modified_goal, this, _1)); //修改了目标点的话，重新规划路径
   srv_clear_route = create_service<ClearRoute>(
     "~/clear_route", service_utils::handle_exception(&MissionPlanner::on_clear_route, this));
   srv_set_lanelet_route = create_service<SetLaneletRoute>(
     "~/set_lanelet_route",
-    service_utils::handle_exception(&MissionPlanner::on_set_lanelet_route, this));
+    service_utils::handle_exception(&MissionPlanner::on_set_lanelet_route, this)); //接收已经有的路线，无需plan
   srv_set_waypoint_route = create_service<SetWaypointRoute>(
     "~/set_waypoint_route",
     service_utils::handle_exception(
       &MissionPlanner::on_set_waypoint_route,
-      this));  // autoware_devel/src/core/autoware_core/api/autoware_default_adapi/src/routing.cpp
+      this));  // autoware_devel/src/core/autoware_core/api/autoware_default_adapi/src/routing.cpp，接收rviz点击的数据，生成路径，核心函数
   pub_route_ = create_publisher<LaneletRoute>("~/route", durable_qos);
   pub_state_ = create_publisher<RouteState>("~/state", durable_qos);
 
@@ -523,7 +523,7 @@ LaneletRoute MissionPlanner::create_route(
   }
   points.push_back(transform_pose(goal_pose, header));
 
-  LaneletRoute route = planner_->plan(points);  // 计算segments
+  LaneletRoute route = planner_->plan(points);  // 计算segments,主路径及相邻车道
   route.header.stamp = header.stamp;
   route.header.frame_id = map_frame_;
   route.uuid = uuid;

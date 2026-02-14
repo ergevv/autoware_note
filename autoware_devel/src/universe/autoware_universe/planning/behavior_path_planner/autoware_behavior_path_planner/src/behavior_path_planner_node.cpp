@@ -73,8 +73,10 @@ BehaviorPathPlannerNode::BehaviorPathPlannerNode(const rclcpp::NodeOptions & nod
 
     const std::lock_guard<std::mutex> lock(mutex_manager_);  // for planner_manager_
 
-    const auto slots = declare_parameter<std::vector<std::string>>("slots");
+    const auto slots = declare_parameter<std::vector<std::string>>(
+      "slots");  // autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_planner/config/scene_module_manager.param.yaml
     /* cppcheck-suppress syntaxError */
+    // 用于后续初始化 PlannerManager，告诉系统每个槽位应该加载哪些模块
     std::vector<std::vector<std::string>> slot_configuration{slots.size()};
     for (size_t i = 0; i < slots.size(); ++i) {
       const auto & slot = slots.at(i);
@@ -91,11 +93,12 @@ BehaviorPathPlannerNode::BehaviorPathPlannerNode(const rclcpp::NodeOptions & nod
       if (name == "") {
         break;
       }
-      planner_manager_->launchScenePlugin(*this, name);
+      planner_manager_->launchScenePlugin(*this, name);  // 读取超多插件到manager_ptrs_
     }
 
     // NOTE: this needs to be after launchScenePlugin()
-    planner_manager_->configureModuleSlot(slot_configuration);
+    planner_manager_->configureModuleSlot(
+      slot_configuration);  // 保留slots里的插件到planner_manager_slots_
 
     for (const auto & manager : planner_manager_->getSceneModuleManagers()) {
       path_candidate_publishers_.emplace(
@@ -180,7 +183,7 @@ void BehaviorPathPlannerNode::takeData()
   }
   // velocity
   {
-    const auto msg = velocity_subscriber_.take_data();
+    const auto msg = velocity_subscriber_.take_data();  // 车子当前速度
     if (msg) {
       planner_data_->self_odometry = msg;
     }
@@ -194,14 +197,16 @@ void BehaviorPathPlannerNode::takeData()
   }
   // scenario
   {
-    const auto msg = scenario_subscriber_.take_data();
+    const auto msg = scenario_subscriber_.take_data();  // 车道驾驶还是停车
     if (msg) {
       current_scenario_ = msg;
     }
   }
   // perception
   {
-    const auto msg = perception_subscriber_.take_data();
+    const auto msg =
+      perception_subscriber_
+        .take_data();  // 获取感知系统检测到的动态物体（车辆、行人等）及其预测轨迹，用于避障和安全路径规划
     if (msg) {
       planner_data_->dynamic_object = msg;
     }
@@ -229,21 +234,25 @@ void BehaviorPathPlannerNode::takeData()
   }
   // lateral_offset
   {
-    const auto msg = lateral_offset_subscriber_.take_data();
+    const auto msg =
+      lateral_offset_subscriber_.take_data();  // 获取横向偏移指令，用于调整车辆在车道中的横向位置
     if (msg) {
       onLateralOffset(msg);
     }
   }
   // operation_mode
   {
-    const auto msg = operation_mode_subscriber_.take_data();
+    const auto msg =
+      operation_mode_subscriber_
+        .take_data();  // 获取操作模式状态，确定车辆是否处于自动驾驶模式，是否启用Autoware控制
     if (msg) {
       planner_data_->operation_mode = msg;
     }
   }
   // external_velocity_limiter
   {
-    const auto msg = external_limit_max_velocity_subscriber_.take_data();
+    const auto msg = external_limit_max_velocity_subscriber_
+                       .take_data();  // 获取外部速度限制，用于确保路径规划不超过特定区域的速度限制
     if (msg) {
       planner_data_->external_limit_max_velocity = msg;
     }
@@ -349,6 +358,11 @@ void BehaviorPathPlannerNode::run()
     planner_data_->route_handler->setRoute(*route_ptr);
     // uuid is not changed when rerouting with modified goal,
     // in this case do not need to reset modules.
+    // 作用：判断新路线的 UUID 是否与之前的路线相同。
+    // 逻辑：
+    // planner_data_->prev_route_id 存储了上一次路线的 UUID。
+    // route_ptr->uuid 是当前路线的唯一标识符。
+    // 如果两者相等，说明路线未发生变化；否则，说明收到了一条全新的路线。
     const bool has_same_route_id =
       planner_data_->prev_route_id && route_ptr->uuid == planner_data_->prev_route_id;
     // Reset behavior tree when new route is received,
@@ -360,6 +374,7 @@ void BehaviorPathPlannerNode::run()
       planner_data_->prev_modified_goal.reset();
     }
   }
+  // 判断车辆是否处于自动驾驶模式，并且 Autoware 控制已启用。
   const auto controlled_by_autoware_autonomously =
     planner_data_->operation_mode->mode == OperationModeState::AUTONOMOUS &&
     planner_data_->operation_mode->is_autoware_control_enabled;
@@ -369,7 +384,7 @@ void BehaviorPathPlannerNode::run()
     planner_manager_->resetCurrentRouteLanelet(planner_data_);
 
   // run behavior planner
-  const auto output = planner_manager_->run(planner_data_);
+  const auto output = planner_manager_->run(planner_data_);  // 处理各种订阅的数据
 
   // path handling
   const auto path = getPath(output, planner_data_);

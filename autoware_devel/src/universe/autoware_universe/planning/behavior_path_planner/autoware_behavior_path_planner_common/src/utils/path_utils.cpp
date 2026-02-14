@@ -463,11 +463,11 @@ BehaviorModuleOutput getReferencePath(
 
   // calculate path with backward margin to avoid end points' instability by spline interpolation
   constexpr double extra_margin = 10.0;
-  const double backward_length = p.backward_path_length + extra_margin;
+  const double backward_length = p.backward_path_length + extra_margin; //增加后向边距：为了避免样条插值在端点处不稳定，额外增加 10 米的后向长度
   const auto current_lanes_with_backward_margin =
-    route_handler->getLaneletSequence(current_lane, backward_length, p.forward_path_length);
+    route_handler->getLaneletSequence(current_lane, backward_length, p.forward_path_length); //当前车道开始的车道序列，覆盖前后指定长度的范围。
   const auto no_shift_pose =
-    lanelet::utils::getClosestCenterPose(current_lane, current_pose.position);
+    lanelet::utils::getClosestCenterPose(current_lane, current_pose.position); //前车道中心线上最接近车辆位置的位姿。
   reference_path = getCenterLinePath(
     *route_handler, current_lanes_with_backward_margin, no_shift_pose, backward_length,
     p.forward_path_length, p);

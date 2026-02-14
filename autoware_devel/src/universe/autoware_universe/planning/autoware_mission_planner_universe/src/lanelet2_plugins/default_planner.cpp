@@ -320,7 +320,7 @@ bool DefaultPlanner::is_goal_valid(const geometry_msgs::msg::Pose & goal)
   return is_in_parking_lot(parking_lots, goal_lanelet_pt);
 }
 
-PlannerPlugin::LaneletRoute DefaultPlanner::plan(const RoutePoints & points)
+PlannerPlugin::LaneletRoute DefaultPlanner::plan(const RoutePoints & points)  //waypoints
 {
   const auto logger = node_->get_logger();
 
@@ -351,8 +351,8 @@ PlannerPlugin::LaneletRoute DefaultPlanner::plan(const RoutePoints & points)
       all_route_lanelets.push_back(lane);
     }
   }
-  route_handler_.setRouteLanelets(all_route_lanelets);
-  route_sections = route_handler_.createMapSegments(all_route_lanelets);
+  route_handler_.setRouteLanelets(all_route_lanelets); //all_route_lanelets是起始点到目标的最短路径
+  route_sections = route_handler_.createMapSegments(all_route_lanelets); //每个segments是主车道加相邻车道
 
   auto goal_pose = points.back();
   if (param_.enable_correct_goal_pose) {
@@ -387,7 +387,7 @@ geometry_msgs::msg::Pose DefaultPlanner::refine_goal_height(
   const auto goal_lane_id = route_sections.back().preferred_primitive.id;
   const auto goal_lanelet = route_handler_.getLaneletsFromId(goal_lane_id);
   const auto goal_lanelet_pt = lanelet::utils::conversion::toLaneletPoint(goal.position);
-  const auto goal_height = project_goal_to_map(goal_lanelet, goal_lanelet_pt);
+  const auto goal_height = project_goal_to_map(goal_lanelet, goal_lanelet_pt); //获取目标点在地图上的精确高程值
 
   Pose refined_goal = goal;
   refined_goal.position.z = goal_height;

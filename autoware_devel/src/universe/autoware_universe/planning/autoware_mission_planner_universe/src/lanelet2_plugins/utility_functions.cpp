@@ -129,28 +129,46 @@ geometry_msgs::msg::Pose get_closest_centerline_pose(
   const lanelet::ConstLanelets & road_lanelets, const geometry_msgs::msg::Pose & point,
   autoware::vehicle_info_utils::VehicleInfo vehicle_info)
 {
+  // 功能：在所有道路车道中查找距离输入点最近的车道
+  // 约束：使用 0.0 作为距离阈值，表示不设最大距离限制
+  // 失败处理：如果没找到最近车道，直接返回原输入点
   lanelet::Lanelet closest_lanelet;
   if (!lanelet::utils::query::getClosestLaneletWithConstrains(
         road_lanelets, point, &closest_lanelet, 0.0)) {
     // point is not on any lanelet.
     return point;
   }
-
+// 目的：生成更精细的中心线，采样间隔为 1.0 米
+// 优势：提高精度，使后续的最近点查找更准确
+// 更新：将车道的中心线替换为精细化后的中心线
   const auto refined_center_line = lanelet::utils::generateFineCenterline(closest_lanelet, 1.0);
   closest_lanelet.setCenterline(refined_center_line);
+//
+// 定位点在中心线上的位置
 
+// 函数首先找到距离 point.position 最近的中心线上的点
+// 这个点通常是中心线离输入点最近的位置
+// 计算切线方向
+
+// 找到该点在中心线上的相邻点对（前后两个点）
+// 计算这两个相邻点之间的方向向量
+// 计算方向向量与全局X轴的夹角
   const double lane_yaw = lanelet::utils::getLaneletAngle(closest_lanelet, point.position);
 
+//找到距离输入点最近的中心线点
   const auto nearest_idx = autoware::motion_utils::findNearestIndex(
     convertCenterlineToPoints(closest_lanelet), point.position);
   const auto nearest_point = closest_lanelet.centerline()[nearest_idx];
 
   // shift nearest point on its local y axis so that vehicle's right and left edges
   // would have approx the same clearance from road border
+  // 补偿车辆左右悬垂差异，使车辆左右边缘与道路边界的间隙大致相等
   const auto shift_length = (vehicle_info.right_overhang_m - vehicle_info.left_overhang_m) / 2.0;
   const auto delta_x = -shift_length * std::sin(lane_yaw);
   const auto delta_y = shift_length * std::cos(lane_yaw);
 
+//   ：在最近中心线点基础上应用偏移修正
+// 保持：Z坐标不变，只调整XY坐标
   lanelet::BasicPoint3d refined_point(
     nearest_point.x() + delta_x, nearest_point.y() + delta_y, nearest_point.z());
 

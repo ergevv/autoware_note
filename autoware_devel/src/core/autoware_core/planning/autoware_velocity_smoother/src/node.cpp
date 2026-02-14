@@ -102,6 +102,10 @@ VelocitySmootherNode::VelocitySmootherNode(const rclcpp::NodeOptions & node_opti
 
 void VelocitySmootherNode::setupSmoother(const double wheelbase)
 {
+// 追求最高舒适度：选择Jerk Filtered
+// 平衡性能和效果：选择L2或L∞ Pseudo Jerk
+// 实时性要求高：选择Analytical
+// 参数调节灵活性：Jerk Filtered和Analytical提供更多可调参数
   switch (node_param_.algorithm_type) {
     case AlgorithmType::JERK_FILTERED: {
       smoother_ = std::make_shared<JerkFilteredSmoother>(*this, time_keeper_);

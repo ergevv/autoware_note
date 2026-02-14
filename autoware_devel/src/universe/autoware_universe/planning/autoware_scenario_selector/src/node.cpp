@@ -144,6 +144,9 @@ autoware_planning_msgs::msg::Trajectory::ConstSharedPtr ScenarioSelectorNode::ge
 
 std::string ScenarioSelectorNode::selectScenarioByPosition()
 {
+//   is_in_lane: 检查当前车辆是否在车道上
+// is_goal_in_lane: 检查目标位置是否在车道上
+// is_in_parking_lot: 检查当前车辆是否在停车场内，地图上记录了停车场位置，找最近的停车场多边形，并检查车辆坐标是否位于该多边形内部来实现此功能。
   const auto is_in_lane =
     isInLane(route_handler_->getLaneletMapPtr(), current_pose_->pose.pose.position);
   const auto is_goal_in_lane =
@@ -179,7 +182,10 @@ std::string ScenarioSelectorNode::selectScenarioByPosition()
 void ScenarioSelectorNode::updateCurrentScenario()
 {
   const auto prev_scenario = current_scenario_;
-
+// 获取当前场景对应的轨迹（车道驾驶或泊车）
+// 检查车辆是否接近轨迹末端（使用 isNearTrajectoryEnd 函数）
+// 检查车辆是否已停止（使用 isStopped 函数）
+// 如果同时满足这两个条件，则重新选择场景
   const auto scenario_trajectory = getScenarioTrajectory(current_scenario_);
   const auto is_near_trajectory_end =
     isNearTrajectoryEnd(scenario_trajectory, current_pose_->pose.pose, th_arrived_distance_m_);
@@ -189,7 +195,9 @@ void ScenarioSelectorNode::updateCurrentScenario()
   if (is_near_trajectory_end && is_stopped) {
     current_scenario_ = selectScenarioByPosition();
   }
-
+// 仅当启用模式切换功能时执行
+// 如果当前是车道驾驶场景，检查是否需要切换到泊车场景
+// 如果当前是泊车场景，检查是否需要切换到车道驾驶场景
   if (enable_mode_switching_) {
     if (isCurrentLaneDriving()) {
       current_scenario_ = isSwitchToParking(is_stopped)
@@ -377,7 +385,7 @@ void ScenarioSelectorNode::onTimer()
 
   // Initialize Scenario
   if (current_scenario_ == autoware_internal_planning_msgs::msg::Scenario::EMPTY) {
-    current_scenario_ = selectScenarioByPosition();
+    current_scenario_ = selectScenarioByPosition(); //车道还是停车场
   }
 
   updateCurrentScenario();
@@ -454,7 +462,7 @@ ScenarioSelectorNode::ScenarioSelectorNode(const rclcpp::NodeOptions & node_opti
   // Input
   sub_lane_driving_trajectory_ = this->create_subscription<autoware_planning_msgs::msg::Trajectory>(
     "input/lane_driving/trajectory", rclcpp::QoS{1},
-    std::bind(&ScenarioSelectorNode::onLaneDrivingTrajectory, this, std::placeholders::_1));
+    std::bind(&ScenarioSelectorNode::onLaneDrivingTrajectory, this, std::placeholders::_1)); //根据车道行驶或泊车发送不同轨迹
 
   sub_parking_trajectory_ = this->create_subscription<autoware_planning_msgs::msg::Trajectory>(
     "input/parking/trajectory", rclcpp::QoS{1},
@@ -462,11 +470,11 @@ ScenarioSelectorNode::ScenarioSelectorNode(const rclcpp::NodeOptions & node_opti
 
   sub_lanelet_map_ = this->create_subscription<autoware_map_msgs::msg::LaneletMapBin>(
     "input/lanelet_map", rclcpp::QoS{1}.transient_local(),
-    std::bind(&ScenarioSelectorNode::onMap, this, std::placeholders::_1));
+    std::bind(&ScenarioSelectorNode::onMap, this, std::placeholders::_1)); //地图
 
   sub_route_ = this->create_subscription<autoware_planning_msgs::msg::LaneletRoute>(
     "input/route", rclcpp::QoS{1}.transient_local(),
-    std::bind(&ScenarioSelectorNode::onRoute, this, std::placeholders::_1));
+    std::bind(&ScenarioSelectorNode::onRoute, this, std::placeholders::_1)); //接收路径
 
   sub_odom_ = decltype(sub_odom_)::element_type::create_subscription(
     this, "input/odometry", rclcpp::QoS{100});
@@ -488,7 +496,7 @@ ScenarioSelectorNode::ScenarioSelectorNode(const rclcpp::NodeOptions & node_opti
   const auto period_ns = rclcpp::Rate(static_cast<double>(update_rate_)).period();
 
   timer_ = rclcpp::create_timer(
-    this, get_clock(), period_ns, std::bind(&ScenarioSelectorNode::onTimer, this));
+    this, get_clock(), period_ns, std::bind(&ScenarioSelectorNode::onTimer, this)); // 
   published_time_publisher_ = std::make_unique<autoware_utils::PublishedTimePublisher>(this);
   pub_processing_time_ = this->create_publisher<autoware_internal_debug_msgs::msg::Float64Stamped>(
     "~/debug/processing_time_ms", 1);

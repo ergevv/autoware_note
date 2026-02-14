@@ -866,13 +866,33 @@ ConstLanelets query::getAllNeighbors(
   return lanelets;
 }
 
+// 假设有一条道路从左到右有4个车道：Lane A → Lane B → Lane C → Lane D
+
+// 当输入为 Lane A 时：
+
+// 首先获取 Lane A 的右侧车道（Lane B）
+// 检查 Lane B 的右侧车道（Lane C）
+// 检查 Lane C 的右侧车道（Lane D）
+// Lane D 没有右侧车道，循环结束
+// 返回 [Lane B, Lane C, Lane D]
 ConstLanelets query::getAllNeighborsRight(
   const routing::RoutingGraphPtr & graph, const ConstLanelet & lanelet)
 {
   ConstLanelets lanelets;
+  // right()
+  //   可变道的右侧车道：表示可以合法进行车道变换的右侧相邻车道
+  //   功能性：车辆可以从当前车道安全地变道到这个右侧车道
+  //   约束条件：车道之间必须有合法的变道关系，通常需要满足以下条件：
+  //   车道标记允许变道（如虚线）
+  //   交通规则允许变道
+  //   几何上相邻且方向一致
+  // adjacentRight()
+  //   几何相邻的右侧车道：仅基于几何位置关系定义的右侧相邻车道
+  //   不一定是可变道的：车辆可能无法直接从当前车道变道到这个车道
+  //   更宽泛的定义：只要在几何上是右侧相邻的，即使中间有护栏、实线等物理或法规限制也会被识别为 adjacent
   auto right_lane =
     (!!graph->right(lanelet)) ? graph->right(lanelet) : graph->adjacentRight(lanelet);
-  while (!!right_lane) {
+  while (!!right_lane) { //!!表示转为bool
     lanelets.push_back(right_lane.get());
     right_lane = (!!graph->right(right_lane.get())) ? graph->right(right_lane.get())
                                                     : graph->adjacentRight(right_lane.get());

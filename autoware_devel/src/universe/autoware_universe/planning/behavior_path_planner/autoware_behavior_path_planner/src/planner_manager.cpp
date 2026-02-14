@@ -36,7 +36,7 @@ namespace autoware::behavior_path_planner
 PlannerManager::PlannerManager(rclcpp::Node & node)
 : plugin_loader_(
     "autoware_behavior_path_planner",
-    "autoware::behavior_path_planner::SceneModuleManagerInterface"),
+    "autoware::behavior_path_planner::SceneModuleManagerInterface"), //定义插件加载器
   logger_(node.get_logger().get_child("planner_manager")),
   clock_(*node.get_clock()),
   last_valid_reference_path_(std::nullopt)
@@ -50,7 +50,7 @@ PlannerManager::PlannerManager(rclcpp::Node & node)
 void PlannerManager::launchScenePlugin(rclcpp::Node & node, const std::string & name)
 {
   if (plugin_loader_.isClassAvailable(name)) {
-    const auto plugin = plugin_loader_.createSharedInstance(name);
+    const auto plugin = plugin_loader_.createSharedInstance(name); //plugin 是一个 std::shared_ptr<SceneModuleManagerInterface> 类型的智能指针。
     plugin->init(&node);
 
     // Check if the plugin is already registered.
@@ -63,7 +63,7 @@ void PlannerManager::launchScenePlugin(rclcpp::Node & node, const std::string & 
 
     // register
     manager_ptrs_.push_back(plugin);
-    processing_time_.emplace(plugin->name(), 0.0);
+    processing_time_.emplace(plugin->name(), 0.0); //plugin->name()在定义的实例中写好了返回的名称
     RCLCPP_DEBUG_STREAM(node.get_logger(), "The scene plugin '" << name << "' is loaded.");
   } else {
     RCLCPP_ERROR_STREAM(node.get_logger(), "The scene plugin '" << name << "' is not available.");
@@ -82,7 +82,7 @@ void PlannerManager::configureModuleSlot(
     SubPlannerManager sub_manager(current_route_lanelet_, processing_time_, debug_info_);
     for (const auto & module_name : slot) {
       if (const auto it = registered_modules.find(module_name); it != registered_modules.end()) {
-        sub_manager.addSceneModuleManager(it->second);
+        sub_manager.addSceneModuleManager(it->second); //保留slot里写到的插件，目前slots里全用了
       } else {
         // TODO(Mamoru Sobue): use LOG
         std::cout << module_name << " registered in slot_configuration is not registered, skipping"
@@ -131,11 +131,17 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
   debug_info_.scene_status.clear();
   debug_info_.slot_status.clear();
 
-  if (!current_route_lanelet_->has_value()) resetCurrentRouteLanelet(data);
+  // 如果 current_route_lanelet_ 为空（即尚未初始化），则调用 resetCurrentRouteLanelet(data) 初始化当前车道信息。
+  if (!current_route_lanelet_->has_value()) resetCurrentRouteLanelet(data); //找到当前位置最近的车道
 
   std::for_each(
-    manager_ptrs_.begin(), manager_ptrs_.end(), [&data](const auto & m) { m->setData(data); });
-
+    manager_ptrs_.begin(), manager_ptrs_.end(), [&data](const auto & m) { m->setData(data); }); 
+// 检查是否有已批准模块正在运行：
+// 遍历所有槽位（planner_manager_slots_），检查是否存在状态为 RUNNING 或 WAITING_APPROVAL 的已批准模块。
+// 检查是否有候选模块正在运行或空闲：
+// 类似地，检查是否存在状态为 RUNNING、WAITING_APPROVAL 或 IDLE 的候选模块。
+// 综合判断模块是否运行：
+// 将上述两种情况合并，得到 is_any_module_running，用于后续逻辑判断。
   const bool is_any_approved_module_running = std::any_of(
     planner_manager_slots_.begin(), planner_manager_slots_.end(), [&](const auto & slot) {
       return slot.isAnyApprovedPred([](const auto & m) {
@@ -158,12 +164,14 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
   const bool is_any_module_running =
     is_any_approved_module_running || is_any_candidate_module_running_or_idle;
 
-  updateCurrentRouteLanelet(data, is_any_approved_module_running);
+  updateCurrentRouteLanelet(data, is_any_approved_module_running);  //根据当前位置查找最近车道，确认行驶在哪个车道
 
+  // 检查车辆当前位置是否偏离当前路线。
   const bool is_out_of_route = utils::isEgoOutOfRoute(
     data->self_odometry->pose.pose, current_route_lanelet_->value(), data->prev_modified_goal,
     data->route_handler);
 
+  // 车辆偏离路线且无模块运行。调用 generateCombinedDrivableArea 生成可行驶区域。生成应急路径，跳过后续模块规划
   if (!is_any_module_running && is_out_of_route) {
     BehaviorModuleOutput result_output = utils::createGoalAroundPath(data);
     RCLCPP_WARN_THROTTLE(

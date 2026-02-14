@@ -666,8 +666,20 @@ lanelet::ArcCoordinates getArcCoordinates(
     const auto & centerline_2d = lanelet::utils::to2D(llt.centerline());
     if (llt == closest_lanelet) {
       const auto lanelet_point = lanelet::utils::conversion::toLaneletPoint(pose.position);
+      // 返回 lanelet::ArcCoordinates 结构体，包含两个重要数值：
+      //   1. arc_coordinates.length
+      //   从线串起点到投影点的弧长距离（纵向距离）
+      //   表示沿曲线路径的实际距离
+      //   2. arc_coordinates.distance
+      //   投影点到曲线的垂直偏移距离（横向距离）
+      //   正值表示点在曲线左侧
+      //   负值表示点在曲线右侧
+      //   数值表示点偏离中心线的横向距离
       arc_coordinates = lanelet::geometry::toArcCoordinates(
         centerline_2d, lanelet::utils::to2D(lanelet_point).basicPoint());
+      // 将之前累积的长度加到弧长坐标的纵向距离上
+      // 这样得到的是从整个车道序列起点到当前位置的总弧长距离
+      // length 包含了当前车道之前所有车道的长度之和
       arc_coordinates.length += length;
       break;
     }

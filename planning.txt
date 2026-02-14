@@ -3,13 +3,17 @@ planning：
 
 一、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/launch/mission_planner.launch.xml
 1、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/src/mission_planner/mission_planner.cpp
+接收rviz点击的数据，生成起点到目标点的路径，核心函数
 
 2、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/src/mission_planner/route_selector.cpp
+main路径和mrm路径的切换
 
 二、autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/scenario_planning.launch.xml
 1、autoware_devel/src/universe/autoware_universe/planning/autoware_scenario_selector/src/node.cpp
+根据车的位置选择是车道行驶还是停车，同时选择对应的轨迹转发
 
 2、autoware_devel/src/universe/autoware_universe/planning/autoware_external_velocity_limit_selector/src/external_velocity_limit_selector_node.cpp
+获取外部API的速度限制信息或系统内部的速度限制信息
 
 3、autoware_devel/src/core/autoware_core/planning/autoware_velocity_smoother/src/node.cpp
 
@@ -19,13 +23,16 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launc
 *5、autoware_devel/src/core/autoware_core/planning/behavior_velocity_planner/autoware_behavior_velocity_planner/src/node.cpp
 
 *6、autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_planner/src/behavior_path_planner_node.cpp
+（1）StaticObstacleAvoidanceModuleManager，autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_static_obstacle_avoidance_module/src/manager.cpp。
 
 7、autoware_devel/src/universe/autoware_universe/perception/autoware_map_based_prediction/src/path_generator.cpp
+属于感知模块下的基于地图的预测子模块。它的主要功能是为不同的交通参与者（如行人、车辆等）生成预测路径。
 
 8、autoware_devel/src/universe/autoware_universe/perception/autoware_compare_map_segmentation/src/voxel_distance_based_compare_map_filter/node.cpp
 
 9、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/vector_map_filter/vector_map_inside_area_filter_node.cpp
 
+autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/lane_driving/motion_planning/motion_planning.launch.xml
 10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp
 
 11、autoware_devel/src/universe/autoware_universe/planning/autoware_path_optimizer/include/autoware/path_optimizer/node.hpp
