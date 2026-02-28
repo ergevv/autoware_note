@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   <!-- options to switch launch function/module -->
-  <arg name="enable_image_decompressor" default="true" description="enable image decompressor"/>
+  <arg name="enable_image_decompressor" default="false" description="enable image decompressor"/>
   <arg name="fusion_only"/>
   <arg name="camera_namespaces"/>
   <arg name="use_high_accuracy_detection"/>

@@ -1001,8 +1001,11 @@ PathWithLaneId getCenterLinePath(
     s_forward = std::clamp(s_forward, 0.0, goal_arc_coordinates.length);
   }
 
+  // 点的坐标（point）。
+  // 添加车道ID（lanelet.id()）。
+  // 设置速度限制（speed_limit）。
   const auto raw_path_with_lane_id =
-    route_handler.getCenterLinePath(lanelet_sequence, s_backward, s_forward, true);
+    route_handler.getCenterLinePath(lanelet_sequence, s_backward, s_forward, true);  //记录了路径点、车道id、速度限制
   auto resampled_path_with_lane_id = autoware::motion_utils::resamplePath(
     raw_path_with_lane_id, parameter.input_path_interval, parameter.enable_akima_spline_first);
 

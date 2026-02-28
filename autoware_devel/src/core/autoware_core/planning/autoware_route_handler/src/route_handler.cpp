@@ -1751,6 +1751,9 @@ PathWithLaneId RouteHandler::getCenterLinePath(
   }
 
   PathWithLaneId reference_path{};
+  // 设置点的坐标（point）。
+  // 添加车道ID（lanelet.id()）。
+  // 设置速度限制（speed_limit）。
   const auto add_path_point =
     [&](const auto & point, const auto & lanelet, const auto & speed_limit) {
       PathPointWithLaneId p{};
@@ -1765,7 +1768,7 @@ PathWithLaneId RouteHandler::getCenterLinePath(
   for (size_t lanelet_idx = 0; lanelet_idx < lanelet_sequence.size(); ++lanelet_idx) {
     const auto & lanelet = lanelet_sequence.at(lanelet_idx);
     const float speed_limit =
-      static_cast<float>(traffic_rules_ptr_->speedLimit(lanelet).speedLimit.value());
+      static_cast<float>(traffic_rules_ptr_->speedLimit(lanelet).speedLimit.value());  // 来自地图读取时的交通规则
 
     const auto & piecewise_ref_points = piecewise_ref_points_vec.at(lanelet_idx);
     for (size_t ref_point_idx = 0; ref_point_idx < piecewise_ref_points.size(); ++ref_point_idx) {
@@ -1796,6 +1799,12 @@ PathWithLaneId RouteHandler::getCenterLinePath(
   reference_path = removeOverlappingPoints(reference_path);
 
   // append a point only when having one point so that yaw calculation would work
+//   如果路径只有一个点：
+// 获取该点所在的车道 lanelet。
+// 计算车道在该点的方向角 lane_yaw。
+// 沿着车道方向延伸一个小距离 ds，生成一个新的点。
+// 将新点添加到路径中，确保后续角度计算能正常工作。
+
   if (reference_path.points.size() == 1) {
     const lanelet::Id lane_id = reference_path.points.front().lane_ids.front();
     const auto lanelet = lanelet_map_ptr_->laneletLayer.get(lane_id);
@@ -1924,7 +1933,7 @@ void RouteHandler::removeOverlappedCenterlineWithWaypoints(
     auto & target_piecewise_ref_points = piecewise_ref_points_vec.at(target_lanelet_sequence_index);
     const double target_lanelet_arc_length = boost::geometry::length(
       lanelet::utils::to2D(
-        lanelet_sequence.at(target_lanelet_sequence_index).centerline().basicLineString()));
+        lanelet_sequence.at(target_lanelet_sequence_index).centerline().basicLineString())); //waypoints对应车道的长度
 
     // search overlapped ref points in the target lanelet
     std::vector<size_t> overlapped_ref_points_indices{};
@@ -1951,9 +1960,9 @@ void RouteHandler::removeOverlappedCenterlineWithWaypoints(
         const double ref_point_arc_length =
           (is_removing_direction_forward ? 0 : -target_lanelet_arc_length) +
           calcArcCoordinates(lanelet_sequence.at(target_lanelet_sequence_index), ref_point.point)
-            .length;
+            .length;  // 计算中心线点的弧长
         if (is_removing_direction_forward) {
-          if (back_arc_length_threshold < offset_arc_length + ref_point_arc_length) {
+          if (back_arc_length_threshold < offset_arc_length + ref_point_arc_length) { //确保 waypoints 前后一定范围内不会保留过多的中心线点，避免冗余。
             return true;
           }
         } else {
@@ -1962,7 +1971,7 @@ void RouteHandler::removeOverlappedCenterlineWithWaypoints(
           }
         }
 
-        overlapped_ref_points_indices.push_back(ref_point_index);
+        overlapped_ref_points_indices.push_back(ref_point_index);  // 中心线点的弧长不对
       }
       return false;
     }();

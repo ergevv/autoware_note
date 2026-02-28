@@ -1103,7 +1103,7 @@ std::optional<double> calcDistanceToForwardStopPoint(
   }
 
   const auto closest_stop_idx =
-    searchZeroVelocityIndex(points_with_twist, src_idx, points_with_twist.size());
+    searchZeroVelocityIndex(points_with_twist, src_idx, points_with_twist.size());  //根据速度限速找到零速点
   if (!closest_stop_idx) {
     return std::nullopt;
   }

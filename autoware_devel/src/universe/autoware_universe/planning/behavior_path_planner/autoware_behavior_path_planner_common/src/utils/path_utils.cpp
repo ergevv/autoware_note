@@ -467,7 +467,7 @@ BehaviorModuleOutput getReferencePath(
   const auto current_lanes_with_backward_margin =
     route_handler->getLaneletSequence(current_lane, backward_length, p.forward_path_length); //当前车道开始的车道序列，覆盖前后指定长度的范围。
   const auto no_shift_pose =
-    lanelet::utils::getClosestCenterPose(current_lane, current_pose.position); //前车道中心线上最接近车辆位置的位姿。
+    lanelet::utils::getClosestCenterPose(current_lane, current_pose.position); //当前车道中心线上最接近车辆位置的位姿。
   reference_path = getCenterLinePath(
     *route_handler, current_lanes_with_backward_margin, no_shift_pose, backward_length,
     p.forward_path_length, p);

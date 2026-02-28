@@ -5,7 +5,7 @@ colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug
 sudo apt update
 sudo apt install gdb
 
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --parallel-workers 2
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --parallel-workers 2
 
 colcon build \
   --symlink-install \
@@ -23,9 +23,19 @@ nano ~/.bashrc
 echo 'source /home/developer/autoware/autoware_devel/install/setup.bash' | sudo tee -a /etc/bash.bashrc  所有用户生效
 sudo nano /etc/bash.bashrc
 
-ros2 launch autoware_launch planning_simulator.launch.xml 
+启动：
+ros2 launch autoware_launch planning_simulator.launch.xml map_path:=/home/developer/autoware/autoware_map/sample-map-planning vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit
 
-map_path:=/home/developer/autoware/autoware_map/sample-map-planning vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit
+挂载map-path和data-path路径，map-path是存放地图的路径，data-path是存放模型之类的文件路径。map-path跟后面的map-path是一致的，data-path则是写死在xml文件中的。
+./docker/run.sh --map-path ~/autoware_map/sample-map-rosbag --data-path ~/autoware_data ros2 launch autoware_launch planning_simulator.launch.xml map_path:=/autoware_map vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit
+
+ln -s /home/developer/autoware/autoware_data $HOME/autoware_data
+
+不使用cuda：
+  autoware_devel/src/universe/autoware_universe/launch/tier4_perception_launch/launch/traffic_light_recognition/traffic_light.launch.xml
+    <arg name="enable_image_decompressor" default="true" description="enable image decompressor"/> 改为false
+  autoware_devel/src/universe/autoware_universe/perception/autoware_traffic_light_classifier/config/car_traffic_light_classifier.param.yaml
+  classifier_type: 1改为0
 
 autoware_devel/src/universe/autoware_universe/launch/tier4_map_launch/launch/map.launch.xml
 
@@ -48,6 +58,9 @@ ros2 有自己的诊断模块
 
 autoware_devel/src/universe/autoware_universe/simulator/autoware_fault_injection/src/fault_injection_node/fault_injection_node.cpp：
 订阅
+
+node_container允许将多个节点运行在同一个进程中，提高资源利用效率并减少进程间通信开销。组合节点vscode无法调试，插件是运行后再加载的，vscode无法识别到插件
+autoware_devel/src/universe/autoware_universe/launch/tier4_map_launch/launch/map.launch.xml
 
 mapping
 1、

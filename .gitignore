@@ -5,3 +5,4 @@ autoware_map/sample-map-planning/*
 show.md
 *.vc.*
 Lanelet2/*
+autoware_data/*

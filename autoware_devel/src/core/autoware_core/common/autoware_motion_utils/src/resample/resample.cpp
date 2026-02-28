@@ -360,6 +360,30 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   return resampled_path;
 }
 
+// input_path：
+
+// 类型：autoware_internal_planning_msgs::msg::PathWithLaneId
+// 说明：输入的原始路径，包含位置、速度、车道ID等信息。
+// resample_interval：
+
+// 类型：double
+// 说明：重采样的间隔距离（单位：米）。
+// use_akima_spline_for_xy：
+
+// 类型：bool
+// 说明：是否使用 Akima 样条插值处理 XY 坐标。
+// use_lerp_for_z：
+
+// 类型：bool
+// 说明：是否使用线性插值处理 Z 坐标。
+// use_zero_order_hold_for_v：
+
+// 类型：bool
+// 说明：是否使用零阶保持法插值速度。
+// resample_input_path_stop_point：
+
+// 类型：bool
+// 说明：是否在路径中插入停点（例如车辆需要停止的位置）。
 autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   const autoware_internal_planning_msgs::msg::PathWithLaneId & input_path,
   const double resample_interval, const bool use_akima_spline_for_xy, const bool use_lerp_for_z,
@@ -374,10 +398,10 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   std::vector<autoware_planning_msgs::msg::PathPoint> transformed_input_path(
     input_path.points.size());
   for (size_t i = 0; i < input_path.points.size(); ++i) {
-    transformed_input_path.at(i) = input_path.points.at(i).point;
+    transformed_input_path.at(i) = input_path.points.at(i).point; //只提取位姿
   }
   // compute path length
-  const double input_path_len = autoware::motion_utils::calcArcLength(transformed_input_path);
+  const double input_path_len = autoware::motion_utils::calcArcLength(transformed_input_path);  //计算所有点的总长
 
   std::vector<double> resampling_arclength;
   for (double s = 0.0; s < input_path_len; s += resample_interval) {
@@ -389,10 +413,11 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   }
 
   // Insert terminal point
+  // 相差较多，则直接在添加一个点
   if (input_path_len - resampling_arclength.back() < autoware::motion_utils::overlap_threshold) {
     resampling_arclength.back() = input_path_len;
   } else {
-    resampling_arclength.push_back(input_path_len);
+    resampling_arclength.push_back(input_path_len); 
   }
 
   // Insert stop point
