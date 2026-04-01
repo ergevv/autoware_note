@@ -156,7 +156,14 @@ bool Controller::processData(rclcpp::Clock & clock)
     if (!data_type.empty()) logData(data_type);
     return false;
   };
+  // 1	sub_accel_	加速度	车辆当前加速度
+  // 2	sub_steering_	转向角	车辆当前转向状态，当前转向轮角度 + 转向率，
+  // 3	sub_ref_path_	参考轨迹	规划的目标轨迹
+  // 4	sub_odometry_	里程计	车辆位姿和速度
+  // 5	sub_operation_mode_	操作模式	自动驾驶模式状态
 
+  // 转向轮角度:转向轮（通常是前轮）相对于车辆纵轴的偏转角度
+  // 转向率:转向轮角度随时间的变化率,方向盘转动的快慢
   is_ready &= getData(current_accel_ptr_, sub_accel_, "acceleration");
   is_ready &= getData(current_steering_ptr_, sub_steering_, "steering");
   is_ready &= getData(current_trajectory_ptr_, sub_ref_path_, "trajectory");

@@ -1007,7 +1007,7 @@ PathWithLaneId getCenterLinePath(
   const auto raw_path_with_lane_id =
     route_handler.getCenterLinePath(lanelet_sequence, s_backward, s_forward, true);  //记录了路径点、车道id、速度限制
   auto resampled_path_with_lane_id = autoware::motion_utils::resamplePath(
-    raw_path_with_lane_id, parameter.input_path_interval, parameter.enable_akima_spline_first);
+    raw_path_with_lane_id, parameter.input_path_interval, parameter.enable_akima_spline_first);  //根据总路线的弧长平分为多个点，对这些点进行插值求得各种数据
 
   // convert centerline, which we consider as CoG center,  to rear wheel center
   if (parameter.enable_cog_on_centerline) {

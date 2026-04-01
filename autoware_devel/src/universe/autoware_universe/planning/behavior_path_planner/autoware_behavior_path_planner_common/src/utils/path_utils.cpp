@@ -470,7 +470,7 @@ BehaviorModuleOutput getReferencePath(
     lanelet::utils::getClosestCenterPose(current_lane, current_pose.position); //当前车道中心线上最接近车辆位置的位姿。
   reference_path = getCenterLinePath(
     *route_handler, current_lanes_with_backward_margin, no_shift_pose, backward_length,
-    p.forward_path_length, p);
+    p.forward_path_length, p); //根据总路线的弧长平分为多个点，对这些点进行插值求得各种数据
 
   if (reference_path.points.empty()) {
     auto clock{rclcpp::Clock{RCL_ROS_TIME}};
@@ -486,20 +486,20 @@ BehaviorModuleOutput getReferencePath(
   const size_t current_seg_idx =
     autoware::motion_utils::findFirstNearestSegmentIndexWithSoftConstraints(
       reference_path.points, no_shift_pose, p.ego_nearest_dist_threshold,
-      p.ego_nearest_yaw_threshold);
+      p.ego_nearest_yaw_threshold); //离pose距离最近，yaw最近的点的索引
   reference_path.points = autoware::motion_utils::cropPoints(
     reference_path.points, no_shift_pose.position, current_seg_idx, p.forward_path_length,
-    p.backward_path_length + p.input_path_interval);
+    p.backward_path_length + p.input_path_interval); //以目标位置为中心，提取指定长度的局部轨迹段
 
-  const auto drivable_lanelets = getLaneletsFromPath(reference_path, route_handler);
-  const auto drivable_lanes = generateDrivableLanes(drivable_lanelets);
+  const auto drivable_lanelets = getLaneletsFromPath(reference_path, route_handler); //通过点查询路径所经过的Lanelet
+  const auto drivable_lanes = generateDrivableLanes(drivable_lanelets); //可行驶车道就是路径所经过的Lanelet
 
   const auto & dp = planner_data->drivable_area_expansion_parameters;
 
-  const auto shorten_lanes = cutOverlappedLanes(reference_path, drivable_lanes);
+  const auto shorten_lanes = cutOverlappedLanes(reference_path, drivable_lanes); //过滤reference_path里的点，shorten_lanes为重叠之前的点
   const auto expanded_lanes = expandLanelets(
     shorten_lanes, dp.drivable_area_left_bound_offset, dp.drivable_area_right_bound_offset,
-    dp.drivable_area_types_to_skip);
+    dp.drivable_area_types_to_skip); //根据配置的偏移量扩展可行驶车道的左右边界，同时支持跳过特定类型的边界（如路缘石），并正确处理单车道和双车道的不同扩展策略
 
   BehaviorModuleOutput output;
   output.path = reference_path;

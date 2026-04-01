@@ -6,3 +6,4 @@ show.md
 *.vc.*
 Lanelet2/*
 autoware_data/*
+core.*

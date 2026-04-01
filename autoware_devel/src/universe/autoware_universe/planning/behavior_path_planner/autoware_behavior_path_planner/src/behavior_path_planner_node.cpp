@@ -384,7 +384,7 @@ void BehaviorPathPlannerNode::run()
     planner_manager_->resetCurrentRouteLanelet(planner_data_);
 
   // run behavior planner
-  const auto output = planner_manager_->run(planner_data_);  // 处理各种订阅的数据
+  const auto output = planner_manager_->run(planner_data_);  // 处理各种订阅的数据，生成轨迹、平分弧长、过滤轨迹点、插值各种参数、拓展边界、根据障碍物修正轨迹
 
   // path handling
   const auto path = getPath(output, planner_data_);
@@ -393,13 +393,14 @@ void BehaviorPathPlannerNode::run()
   planner_data_->prev_output_path = path;
 
   // compute turn signal
+  // 根据规划结果计算并发布车辆的转向灯和危险灯(紧急停车、系统故障)指令。
   computeTurnSignal(planner_data_, *path, output);
 
   // publish reroute availability
-  publish_reroute_availability();
+  publish_reroute_availability(); //当有非车道跟随模块正在运行时，重新路由可能导致意外行为，此消息用于通知上游模块当前是否安全进行重路由。
 
   // publish drivable bounds
-  publish_bounds(*path);
+  publish_bounds(*path); //发布可行驶区域边界
 
   // NOTE: In order to keep backward_path_length at least, resampling interval is added to the
   // backward.
@@ -454,6 +455,8 @@ void BehaviorPathPlannerNode::run()
   RCLCPP_DEBUG(get_logger(), "----- behavior path planner end -----\n\n");
 }
 
+// 根据规划结果计算并发布车辆的转向灯和危险灯指令。
+
 void BehaviorPathPlannerNode::computeTurnSignal(
   const std::shared_ptr<PlannerData> planner_data, const PathWithLaneId & path,
   const BehaviorModuleOutput & output)
@@ -461,11 +464,11 @@ void BehaviorPathPlannerNode::computeTurnSignal(
   TurnIndicatorsCommand turn_signal;
   TurnSignalDebugData debug_data;
   HazardLightsCommand hazard_signal;
-  if (output.turn_signal_info.hazard_signal.command == HazardLightsCommand::ENABLE) {
-    turn_signal.command = TurnIndicatorsCommand::DISABLE;
+  if (output.turn_signal_info.hazard_signal.command == HazardLightsCommand::ENABLE) { //如果行为模块输出要求开启危险灯（如紧急停车、系统故障），则进入此分支
+    turn_signal.command = TurnIndicatorsCommand::DISABLE; //禁用转向灯：危险灯优先级高于转向灯，此时关闭转向灯
     hazard_signal.command = output.turn_signal_info.hazard_signal.command;
   } else {
-    turn_signal = planner_data->getTurnSignal(path, output.turn_signal_info, debug_data);
+    turn_signal = planner_data->getTurnSignal(path, output.turn_signal_info, debug_data); //计算转向灯：调用 planner_data 的 getTurnSignal 方法，根据路径和转向信息计算转向灯命令，同时填充
     hazard_signal.command = HazardLightsCommand::DISABLE;
   }
   turn_signal.stamp = get_clock()->now();

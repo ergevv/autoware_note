@@ -423,7 +423,7 @@ double calcLongitudinalOffsetToSegment(
     return std::nan("");
   }
 
-  const auto overlap_removed_points = removeOverlapPoints(points, seg_idx);
+  const auto overlap_removed_points = removeOverlapPoints(points, seg_idx); // 去除seg_idx之后相邻点较近的点
 
   if (throw_exception) {
     validateNonEmpty(overlap_removed_points);
@@ -457,7 +457,7 @@ double calcLongitudinalOffsetToSegment(
   const Eigen::Vector3d segment_vec{p_back.x - p_front.x, p_back.y - p_front.y, 0};
   const Eigen::Vector3d target_vec{p_target.x - p_front.x, p_target.y - p_front.y, 0};
 
-  return segment_vec.dot(target_vec) / segment_vec.norm();
+  return segment_vec.dot(target_vec) / segment_vec.norm(); //目标点在相邻线段上的投影
 }
 
 extern template double
@@ -1108,7 +1108,7 @@ std::optional<double> calcDistanceToForwardStopPoint(
     return std::nullopt;
   }
 
-  return std::max(0.0, calcSignedArcLength(points_with_twist, src_idx, *closest_stop_idx));
+  return std::max(0.0, calcSignedArcLength(points_with_twist, src_idx, *closest_stop_idx)); //计算src_idx到零速点的距离
 }
 
 extern template std::optional<double>
@@ -2301,7 +2301,7 @@ size_t findFirstNearestSegmentIndexWithSoftConstraints(
 {
   // find first nearest index with soft constraints (not segment index)
   const size_t nearest_idx =
-    findFirstNearestIndexWithSoftConstraints(points, pose, dist_threshold, yaw_threshold);
+    findFirstNearestIndexWithSoftConstraints(points, pose, dist_threshold, yaw_threshold);  //离pose距离最近，yaw最近的点的索引
 
   // calculate segment index
   if (nearest_idx == 0) {
@@ -2314,7 +2314,7 @@ size_t findFirstNearestSegmentIndexWithSoftConstraints(
   const double signed_length = calcLongitudinalOffsetToSegment(points, nearest_idx, pose.position);
 
   if (signed_length <= 0) {
-    return nearest_idx - 1;
+    return nearest_idx - 1; //目标点在前一个线段上
   }
 
   return nearest_idx;

@@ -675,7 +675,7 @@ std::optional<size_t> getOverlappedLaneletId(const std::vector<DrivableLanes> & 
 std::vector<DrivableLanes> cutOverlappedLanes(
   PathWithLaneId & path, const std::vector<DrivableLanes> & lanes)
 {
-  const auto overlapped_lanelet_idx = getOverlappedLaneletId(lanes);
+  const auto overlapped_lanelet_idx = getOverlappedLaneletId(lanes); //存在重叠车道，只返回第一个重叠的车道
   if (!overlapped_lanelet_idx) {
     return lanes;
   }
@@ -844,6 +844,7 @@ void generateDrivableArea(
   using autoware_utils::calc_offset_pose;
 
   // remove path points which is close to the previous point
+  //首点必保留，后续点仅当与前一点弧长距离 > 2.0 米时才保留
   PathWithLaneId resampled_path{};
   const double resample_interval = 2.0;
   for (size_t i = 0; i < path.points.size(); ++i) {
@@ -868,7 +869,7 @@ void generateDrivableArea(
     autoware_utils::calc_distance2d(
       resampled_path.points.back().point.pose.position, path.points.back().point.pose.position) >
     th_last_point_distance) {
-    resampled_path.points.push_back(path.points.back());
+    resampled_path.points.push_back(path.points.back()); //采样的点如何比终点小于0.3m则添加终点，确保重采样后的路径包含原始终点
   }
 
   // create bound point by calculating offset point
@@ -884,6 +885,7 @@ void generateDrivableArea(
     right_bound.push_back(right_point.position);
   }
 
+  //考虑车辆实际长度，在路径起点和终点处扩展可行驶区域边界，确保边界能够覆盖整个车辆的轮廓范围。
   if (is_driving_forward) {
     // add backward offset point to bound
     const Pose first_point =
@@ -985,6 +987,12 @@ std::vector<DrivableLanes> expandLanelets(
   std::vector<DrivableLanes> expanded_drivable_lanes{};
   expanded_drivable_lanes.reserve(drivable_lanes.size());
   for (const auto & lanes : drivable_lanes) {
+    // 获取边界类型
+    // "road_border"     - 道路边界
+    // "curb"            - 路缘石
+    // "guard_rail"      - 护栏
+    // "none"            - 无类型（默认）
+    // "hatched_road"    - 导流线
     const std::string l_type =
       lanes.left_lane.leftBound().attributeOr(lanelet::AttributeName::Type, "none");
     const std::string r_type =

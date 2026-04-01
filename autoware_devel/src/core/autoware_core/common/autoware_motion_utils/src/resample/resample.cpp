@@ -136,7 +136,7 @@ std::vector<geometry_msgs::msg::Pose> resamplePoseVector(
     position.at(i) = points.at(i).position;
   }
   const auto resampled_position =
-    resamplePointVector(position, resampled_arclength, use_akima_spline_for_xy, use_lerp_for_z);
+    resamplePointVector(position, resampled_arclength, use_akima_spline_for_xy, use_lerp_for_z); 
 
   std::vector<geometry_msgs::msg::Pose> resampled_points(resampled_position.size());
 
@@ -196,7 +196,7 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
 
   // Add resampling_arclength to insert input points which have multiple lane_ids
   for (size_t i = 0; i < input_path.points.size(); ++i) {
-    if (input_path.points.at(i).lane_ids.size() < 2) {
+    if (input_path.points.at(i).lane_ids.size() < 2) {  // 基本都是一个点
       continue;
     }
 
@@ -259,8 +259,8 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   input_pose.push_back(input_path.points.front().point.pose);
   v_lon.push_back(input_path.points.front().point.longitudinal_velocity_mps);
   v_lat.push_back(input_path.points.front().point.lateral_velocity_mps);
-  heading_rate.push_back(input_path.points.front().point.heading_rate_rps);
-  is_final.push_back(input_path.points.front().point.is_final);
+  heading_rate.push_back(input_path.points.front().point.heading_rate_rps);  // 航向角速率
+  is_final.push_back(input_path.points.front().point.is_final);              // 终点标志
   lane_ids.push_back(input_path.points.front().lane_ids);
   for (size_t i = 1; i < input_path.points.size(); ++i) {
     const auto & prev_pt = input_path.points.at(i - 1).point;
@@ -284,15 +284,15 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
 
   // Interpolate
   const auto lerp = [&](const auto & input) {
-    return autoware::interpolation::lerp(input_arclength, input, resampling_arclength);
+    return autoware::interpolation::lerp(input_arclength, input, resampling_arclength);  //resampling_arclength对应的插值
   };
 
   auto closest_segment_indices =
-    autoware::interpolation::calc_closest_segment_indices(input_arclength, resampling_arclength);
+    autoware::interpolation::calc_closest_segment_indices(input_arclength, resampling_arclength);  //将resampling_arclength 对应的最近线段input_arclength的索引保存到结果数组中。
 
   const auto zoh = [&](const auto & input) {
     return autoware::interpolation::zero_order_hold(
-      input_arclength, input, closest_segment_indices);
+      input_arclength, input, closest_segment_indices);  //根据给定的基准键（base_keys）、基准值（base_values）以及预计算的最近线段索引（closest_segment_indices），为每个查询点返回对应的插值结果。
   };
 
   const auto interpolated_pose =
@@ -398,10 +398,11 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   std::vector<autoware_planning_msgs::msg::PathPoint> transformed_input_path(
     input_path.points.size());
   for (size_t i = 0; i < input_path.points.size(); ++i) {
-    transformed_input_path.at(i) = input_path.points.at(i).point; //只提取位姿
+    transformed_input_path.at(i) = input_path.points.at(i).point;  // 只提取位姿
   }
   // compute path length
-  const double input_path_len = autoware::motion_utils::calcArcLength(transformed_input_path);  //计算所有点的总长
+  const double input_path_len =
+    autoware::motion_utils::calcArcLength(transformed_input_path);  // 计算所有点的总长
 
   std::vector<double> resampling_arclength;
   for (double s = 0.0; s < input_path_len; s += resample_interval) {
@@ -417,7 +418,7 @@ autoware_internal_planning_msgs::msg::PathWithLaneId resamplePath(
   if (input_path_len - resampling_arclength.back() < autoware::motion_utils::overlap_threshold) {
     resampling_arclength.back() = input_path_len;
   } else {
-    resampling_arclength.push_back(input_path_len); 
+    resampling_arclength.push_back(input_path_len);
   }
 
   // Insert stop point
@@ -681,7 +682,7 @@ autoware_planning_msgs::msg::Trajectory resampleTrajectory(
   };
 
   const auto interpolated_pose =
-    resamplePoseVector(input_pose, resampled_arclength, use_akima_spline_for_xy, use_lerp_for_z);
+    resamplePoseVector(input_pose, resampled_arclength, use_akima_spline_for_xy, use_lerp_for_z); //插值得到resampled_arclength对应的位置和车身的朝向
   const auto interpolated_v_lon = use_zero_order_hold_for_twist ? zoh(v_lon) : lerp(v_lon);
   const auto interpolated_v_lat = use_zero_order_hold_for_twist ? zoh(v_lat) : lerp(v_lat);
   const auto interpolated_heading_rate = lerp(heading_rate);

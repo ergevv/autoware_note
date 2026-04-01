@@ -188,6 +188,7 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
     false,
   };
 
+  //使用autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_planner/config/scene_module_manager.param.yaml，这些插件的核心作用确实是生成和调整行驶轨迹，根据实时场景进行局部轨迹调整和优化的场景处理器。
   for (auto & planner_manager_slot : planner_manager_slots_) {
     if (result_output.is_upstream_failed_approved) {
       // clear all candidate/approved modules of all subsequent slots, and keep result_output as is
@@ -205,12 +206,17 @@ BehaviorModuleOutput PlannerManager::run(const std::shared_ptr<PlannerData> & da
     }
   }
 
+  //通知每一个插件，与planner_manager_slots_里是一致的
   std::for_each(manager_ptrs_.begin(), manager_ptrs_.end(), [](const auto & m) {
     m->updateObserver();
     m->publishRTCStatus();
     m->publish_planning_factors();
   });
   // resample the path prior to generating the drivable area
+  // 各模块生成的路径点间距不均匀	按固定弧长间隔重新采样
+  // 路径曲率变化大，点密度不一致	使用样条插值平滑
+  // 下游控制模块需要等间距轨迹点	统一输出格式
+  //keep_input_points，当 goal_planner 或 avoidance 模块处于运行或等待批准状态时，保留原始输入点，避免重采样破坏关键轨迹特征（如泊车点、避让点）。
   result_output.valid_output.path = utils::resamplePathWithSpline(
     result_output.valid_output.path, data->parameters.output_path_interval,
     keep_input_points(getSceneModuleStatus()));
@@ -228,16 +234,21 @@ void PlannerManager::generateCombinedDrivableArea(
     return;
   }
 
+  // drivable_margin          → 可行驶边界余量
+  // drivable_lanes           → 可行驶车道集合
+  // is_already_expanded      → 是否已扩展过
+  // enable_expanding_*       → 各类区域扩展开关
+  // obstacles                → 障碍物列表
   const auto & di = output.drivable_area_info;
   constexpr double epsilon = 1e-3;
 
-  const auto is_driving_forward_opt = autoware::motion_utils::isDrivingForward(output.path.points);
+  const auto is_driving_forward_opt = autoware::motion_utils::isDrivingForward(output.path.points); //倒车时的可行驶区域计算方式不同
   const bool is_driving_forward = is_driving_forward_opt ? *is_driving_forward_opt : true;
 
   if (epsilon < std::abs(di.drivable_margin)) {
     // for single free space pull over
     utils::generateDrivableArea(
-      output.path, data->parameters.vehicle_length, di.drivable_margin, is_driving_forward);
+      output.path, data->parameters.vehicle_length, di.drivable_margin, is_driving_forward);  //拓展行车边界
   } else if (di.is_already_expanded) {
     // for single side shift
     utils::generateDrivableArea(
@@ -300,7 +311,15 @@ void PlannerManager::updateCurrentRouteLanelet(
 BehaviorModuleOutput PlannerManager::getReferencePath(
   const std::shared_ptr<PlannerData> & data) const
 {
-  const auto reference_path = utils::getReferencePath(current_route_lanelet_->value(), data);
+    // traj_point.pose = interpolated_pose.at(i);
+    // traj_point.longitudinal_velocity_mps = interpolated_v_lon.at(i);
+    // traj_point.lateral_velocity_mps = interpolated_v_lat.at(i);
+    // traj_point.heading_rate_rps = interpolated_heading_rate.at(i);
+    // traj_point.acceleration_mps2 = interpolated_acceleration.at(i);
+    // traj_point.front_wheel_angle_rad = interpolated_front_wheel_angle.at(i);
+    // traj_point.rear_wheel_angle_rad = interpolated_rear_wheel_angle.at(i);
+    // traj_point.time_from_start = rclcpp::Duration::from_seconds(interpolated_time_from_start.at(i));
+  const auto reference_path = utils::getReferencePath(current_route_lanelet_->value(), data); //按照弧长来平分点，并插值各种数据（速度、如上），并过滤不合适的点
 
   if (reference_path.path.points.empty()) {
     RCLCPP_WARN_THROTTLE(

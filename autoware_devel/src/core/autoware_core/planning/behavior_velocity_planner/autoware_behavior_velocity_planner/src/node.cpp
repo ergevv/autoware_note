@@ -63,7 +63,7 @@ BehaviorVelocityPlannerNode::BehaviorVelocityPlannerNode(const rclcpp::NodeOptio
   // Trigger Subscriber
   trigger_sub_path_with_lane_id_ =
     this->create_subscription<autoware_internal_planning_msgs::msg::PathWithLaneId>(
-      "~/input/path_with_lane_id", 1, std::bind(&BehaviorVelocityPlannerNode::onTrigger, this, _1));
+      "~/input/path_with_lane_id", 1, std::bind(&BehaviorVelocityPlannerNode::onTrigger, this, _1)); //来自轨迹的点和插值，路径定义为车道构成的，轨迹是车道上的点
 
   srv_load_plugin_ = create_service<LoadPlugin>(
     "~/service/load_plugin", std::bind(&BehaviorVelocityPlannerNode::onLoadPlugin, this, _1, _2));
@@ -92,6 +92,7 @@ BehaviorVelocityPlannerNode::BehaviorVelocityPlannerNode(const rclcpp::NodeOptio
   planner_data_.is_simulation = declare_parameter<bool>("is_simulation");
 
   // Initialize PlannerManager
+  //模块参数来自autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/lane_driving/behavior_planning/behavior_planning.launch.xml
   for (const auto & name : declare_parameter<std::vector<std::string>>("launch_modules")) {
     // workaround: Since ROS 2 can't get empty list, launcher set [''] on the parameter.
     if (name == "") {
@@ -253,15 +254,15 @@ bool BehaviorVelocityPlannerNode::processData(rclcpp::Clock clock)
     "acceleration");  // 获取当前加速度数据，更新 is_ready 状态
   is_ready &= getData(
     planner_data_.predicted_objects, sub_predicted_objects_, "predicted_objects",
-    required_subscriptions.predicted_objects);
+    required_subscriptions.predicted_objects); //获取预测障碍物数据
   is_ready &= getData(
     planner_data_.occupancy_grid, sub_occupancy_grid_, "occupancy_grid",
-    required_subscriptions.occupancy_grid_map);
+    required_subscriptions.occupancy_grid_map); //获取占用栅格地图数据
 
   nav_msgs::msg::Odometry::ConstSharedPtr odometry;
-  is_ready &= getData(odometry, sub_vehicle_odometry_, "odometry");  // 只订阅了一次
+  is_ready &= getData(odometry, sub_vehicle_odometry_, "odometry");  // 只订阅了一次，位姿和速度
   if (odometry) {
-    processOdometry(odometry);
+    processOdometry(odometry); //更新位姿和速度
   }
 
   sensor_msgs::msg::PointCloud2::ConstSharedPtr no_ground_pointcloud;
@@ -278,12 +279,12 @@ bool BehaviorVelocityPlannerNode::processData(rclcpp::Clock clock)
   }
 
   // planner_data_.external_velocity_limit is std::optional type variable.
-  const auto external_velocity_limit = sub_external_velocity_limit_.take_data();
+  const auto external_velocity_limit = sub_external_velocity_limit_.take_data();  //外部限速
   if (external_velocity_limit) {
     planner_data_.external_velocity_limit = *external_velocity_limit;
   }
 
-  const auto traffic_signals = sub_traffic_signals_.take_data();
+  const auto traffic_signals = sub_traffic_signals_.take_data(); //获取交通信号灯组
   if (traffic_signals) {
     // NOTE: required_subscriptions.traffic_signals is not used since is_ready is not updated here.
     processTrafficSignals(traffic_signals);
@@ -361,10 +362,11 @@ autoware_planning_msgs::msg::Path BehaviorVelocityPlannerNode::generatePath(
   }
 
   // Plan path velocity
+  // 遍历所有已加载的场景插件（如红绿灯、行人、停止线等模块），依次进行速度规划
   const auto velocity_planned_path = planner_manager_.planPathVelocity(
     std::make_shared<const PlannerData>(planner_data), *input_path_msg);
 
-  // screening
+  // screening，移除距离过近的点
   const auto filtered_path =
     autoware::behavior_velocity_planner::filterLitterPathPoint(to_path(velocity_planned_path));
 
@@ -373,6 +375,7 @@ autoware_planning_msgs::msg::Path BehaviorVelocityPlannerNode::generatePath(
     filtered_path, forward_path_length_, behavior_output_path_interval_);
 
   // check stop point
+  // 识别路径中的停车位置（如红绿灯、停止线前），在停止点处设置速度为 0
   output_path_msg = autoware::behavior_velocity_planner::filterStopPathPoint(interpolated_path_msg);
 
   output_path_msg.header.frame_id = "map";

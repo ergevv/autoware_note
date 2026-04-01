@@ -2,8 +2,8 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launc
 planning：
 
 一、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/launch/mission_planner.launch.xml
-1、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/src/mission_planner/mission_planner.cpp
-接收rviz点击的数据，生成起点到目标点的路径，核心函数
+*1、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/src/mission_planner/mission_planner.cpp
+接收rviz点击的数据，生成起点到目标点的路径，核心函数，找到行驶的车道
 
 2、autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/src/mission_planner/route_selector.cpp
 main路径和mrm路径的切换
@@ -15,42 +15,109 @@ main路径和mrm路径的切换
 2、autoware_devel/src/universe/autoware_universe/planning/autoware_external_velocity_limit_selector/src/external_velocity_limit_selector_node.cpp
 获取外部API的速度限制信息或系统内部的速度限制信息
 
-3、autoware_devel/src/core/autoware_core/planning/autoware_velocity_smoother/src/node.cpp
+*3、autoware_devel/src/core/autoware_core/planning/autoware_velocity_smoother/src/node.cpp
+  输入轨迹：位置固定，速度可能不连续/不舒适              │
+│                    ↓                                    │
+│  1. 横向加速度限制 → 根据曲率调整速度                   │
+│  2. 转向角速度限制 → 根据转向变化率调整速度             │
+│  3. 重采样 → 调整点间距，位置仍在原路径上               │
+│  4. 优化求解 → 优化速度曲线，使 jerk/acc 平滑           │
+│  5. 速度限制 → 确保不超速                               │
+│                    ↓                                    │
+│  输出轨迹：位置不变，速度平滑舒适    
 
 4、autoware_devel/src/universe/autoware_universe/planning/autoware_hazard_lights_selector/src/node.cpp
+该节点是一个简单的信号选择器，它监听两个输入源（规划与系统），采用“任一请求即开启”的策略来决定车辆危险警告灯的状态，并通过固定频率循环发布控制指令。
 
 autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/lane_driving.launch.xml
 *5、autoware_devel/src/core/autoware_core/planning/behavior_velocity_planner/autoware_behavior_velocity_planner/src/node.cpp
+遍历所有已加载的场景插件（如红绿灯、行人、停止线等模块），依次进行速度规划，记录了每个点的位置和横向纵向速度，这里的点的速度是强制要求的，不够平滑。
 
 *6、autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_planner/src/behavior_path_planner_node.cpp
+根据车道的中心线使用弧长平分计算各个点，并插值各种信息，过滤轨迹点、拓展边界、根据障碍物修正轨迹
 （1）StaticObstacleAvoidanceModuleManager，autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_static_obstacle_avoidance_module/src/manager.cpp。
+    slot1:
+      - "start_planner"
+    slot2:
+      - "side_shift"
+      - "avoidance_by_lane_change"
+      - "static_obstacle_avoidance"
+      - "lane_change_left"
+      - "lane_change_right"
+      - "external_request_lane_change_left"
+      - "external_request_lane_change_right"
+    slot3:
+      - "goal_planner"
+    slot4:
+      - "dynamic_obstacle_avoidance"
+| `slot1` | 1 个 | 最高 | 基础起步控制 |
+| `slot2` | 7 个 | 高 | 常规行驶与变道避让 |
+| `slot3` | 1 个 | 中 | 目标点泊车 |
+| `slot4` | 1 个 | 低 | 动态障碍物处理 |
 
 7、autoware_devel/src/universe/autoware_universe/perception/autoware_map_based_prediction/src/path_generator.cpp
 属于感知模块下的基于地图的预测子模块。它的主要功能是为不同的交通参与者（如行人、车辆等）生成预测路径。
 
 8、autoware_devel/src/universe/autoware_universe/perception/autoware_compare_map_segmentation/src/voxel_distance_based_compare_map_filter/node.cpp
+实现了一个高效的点云滤波器，通过对比实时扫描点云与高精度静态地图，剔除背景静态点。它支持静态全图加载和动态分块加载两种模式，以适应不同的内存和性能需求，并内置了完善的性能监控和诊断功能，适用于自动驾驶感知系统中的障碍物检测前处理环节。
 
 9、autoware_devel/src/universe/autoware_universe/sensing/autoware_pointcloud_preprocessor/src/vector_map_filter/vector_map_inside_area_filter_node.cpp
+实现了一个基于矢量地图（Vector Map）特定区域过滤点云的 ROS 2 节点组件。其主要功能是剔除位于矢量地图指定多边形区域内部的点云数据（例如剔除地面、建筑物或特定感兴趣区域内的点）。
 
 autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/lane_driving/motion_planning/motion_planning.launch.xml
-10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp
+*10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp（待学）
+实现了基于弹性带（Elastic Band）算法的路径平滑器 ROS 2 节点组件。其主要功能是对规划路径进行平滑优化，生成可执行的平滑轨迹。
 
-11、autoware_devel/src/universe/autoware_universe/planning/autoware_path_optimizer/include/autoware/path_optimizer/node.hpp
+对比项	PathOptimizer (node.cpp)	ElasticBandSmoother
+算法类型	MPT (Model Predictive Trajectory)	Elastic Band (弹性带)
+优化器类	MPTOptimizer	EBPathSmoother
+数学基础	模型预测控制 (MPC) + 二次规划	弹簧力学模型 + 梯度下降
+约束处理	硬约束 (可行驶区域、运动学)	软约束 (弹力平衡)
 
-12、autoware_devel/src/universe/autoware_universe/planning/sampling_based_planner/autoware_path_sampler/include/autoware_path_sampler/node.hpp
+*11、autoware_devel/src/universe/autoware_universe/planning/autoware_path_optimizer/src/node.cpp
+维度	PathOptimizer (MPT)	ElasticBandSmoother
+定位	安全优先的轨迹优化器	效率优先的路径平滑器
+核心优势	严格的可行驶区域约束、完善的诊断监控	计算轻量、实现简单
+适用阶段	最终轨迹输出前的安全检查	路径规划后的平滑处理
+复杂度	高 (MPC 优化 + 多重检查)	低 (弹力模型 + 梯度下降)
+在实际系统中，两者可以串联使用——先用 ElasticBandSmoother 进行初步平滑，再用 PathOptimizer 进行安全约束检查和最终优化，兼顾效率与安全性
+
+*12、autoware_devel/src/universe/autoware_universe/planning/sampling_based_planner/autoware_path_sampler/src/node.cpp
+生成 - 选择式的规划器，通过生成多条候选路径并评估选择最优路径。
+PathSampler (生成候选) → PathOptimizer (安全优化) → ElasticBandSmoother (最终平滑)
 
 13、autoware_devel/src/core/autoware_core/planning/autoware_planning_topic_converter/src/path_to_trajectory.cpp
+规划器统一输出 Path 格式，这里将 Path 消息转换为 Trajectory 消息，不做任何算法处理
 
-14、autoware_devel/src/core/autoware_core/planning/motion_velocity_planner/autoware_motion_velocity_planner/src/node.cpp
+*14、autoware_devel/src/core/autoware_core/planning/motion_velocity_planner/autoware_motion_velocity_planner/src/node.cpp
+速度平滑：使用 Jerk 约束平滑器优化速度曲线
+轨迹重采样：移除过密的轨迹点提高计算效率
+多源感知融合：整合点云、栅格、预测障碍物进行速度决策
+停车/减速插入：根据规划结果在轨迹中插入停车点和减速区间
+速度限制发布：发布全局速度限制供下游模块使用
+
+MotionVelocityPlanner 负责速度决策，VelocitySmoother 负责速度平滑，两者协同工作确保轨迹既安全又舒适。
+
+维度	MotionVelocityPlanner	VelocitySmoother
+层级	速度决策层（上层）	速度平滑层（下层）
+核心问题	要不要减速？在哪里停？	如何舒适地变速？
+算法范式	规则-based（插件化）	优化-based（QP/解析解）
+数据依赖	感知数据（点云/栅格/障碍物）	运动学数据（里程计/加速度）
+输出类型	离散决策（停车点/减速区间）	连续曲线（v/a/j 平滑）
+
 
 15、autoware_devel/src/universe/autoware_universe/planning/autoware_surround_obstacle_checker/src/node.cpp
+通过融合点云和动态物体感知数据，实时计算自车周围的安全区域。当障碍物侵入设定阈值时，强制下发速度限制为 0 的指令使车辆停止，并在障碍物清除后通过迟滞逻辑恢复通行，确保自动驾驶车辆在起步和低速行驶时的周围安全性。
 
 16、autoware_devel/src/universe/autoware_universe/planning/autoware_costmap_generator/src/costmap_generator.cpp
+负责融合多源数据（点云、动态物体、高精地图）生成局部代价地图（Costmap），用于路径规划中的障碍物 avoidance 和可行驶区域判断
 
 17、autoware_devel/src/universe/autoware_universe/planning/autoware_freespace_planner/src/autoware_freespace_planner/freespace_planner_node.cpp
+自由空间规划器，负责在低速场景（如泊车）下，基于占用栅格地图生成无碰撞轨迹。
 
 18、autoware_devel/src/universe/autoware_universe/planning/planning_validator/autoware_planning_validator/src/node.cpp 对规划模块生成的轨迹进行一系列检查，确保轨迹符合物理约束和安全要求
 
 19、autoware_devel/src/universe/autoware_universe/evaluator/autoware_planning_evaluator/src/planning_evaluator_node.cpp
+实时监控和评估规划模块输出的轨迹质量、车辆运动状态及决策行为，并将评估指标发布或保存。
 
 20、autoware_devel/src/universe/autoware_universe/planning/autoware_remaining_distance_time_calculator/src/remaining_distance_time_calculator_node.cpp 计算自动驾驶车辆到达目标点剩余距离和时间

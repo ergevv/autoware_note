@@ -4,18 +4,44 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_control_launch/launch
 综合考虑车辆速度、自动驾驶状态和到达目标情况，智能地决定合适的档位
 
 2、autoware_devel/src/universe/autoware_universe/control/autoware_vehicle_cmd_gate/src/vehicle_cmd_gate.cpp
+控制系统的安全网关，核心职责包括：
+
+模式管理：在自动、外部遥控、紧急模式间切换
+安全监控：心跳检测、紧急停止处理
+命令滤波：确保控制命令在安全范围内
+状态发布：向下游节点发布控制命令和状态信息
+vehicle_cmd_gate 订阅 transition_manager 发布的 OperationModeState，如何安全地执行控制命令
 
 3、autoware_devel/src/universe/autoware_universe/control/autoware_operation_mode_transition_manager/src/node.cpp
 自动驾驶模式切换: 安全地在手动和自动驾驶模式之间切换
         紧急模式: 快速切换到停止模式
         远程控制: 支持远程操作模式切换
         本地控制: 支持本地操作模式切换 
+什么时候可以切换模式
 
-4、autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
+*4、autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
 根据参考轨迹计算车辆的横向（转向）和纵向（速度/加速度）控制命令
 
-5、autoware_devel/src/universe/autoware_universe/control/autoware_smart_mpc_trajectory_follower/scripts/pympc_trajectory_follower.py
+│                    MPC 的核心三要素                          │
+├─────────────────────────────────────────────────────────────┤
+│  1. 预测（Prediction）                                       │
+│     使用模型预测未来一段时间的系统状态                         │
+│                                                             │
+│  2. 优化（Optimization）                                     │
+│     在预测时域内求解最优控制序列                              │
+│                                                             │
+│  3. 滚动（Receding Horizon）                                 │
+│     只执行第一步控制，下一周期重新优化                         │
+└────────────────────────────────────────
+
+*5、autoware_devel/src/universe/autoware_universe/control/autoware_smart_mpc_trajectory_follower/scripts/pympc_trajectory_follower.py
 MPC（模型预测控制）轨迹跟随器，使用神经网络模型进行控制决策
+
+在这里4和5实现的逻辑一致，只是5使用神经网络模型进行控制决策
+特性	controller_node.cpp	pympc_trajectory_follower.py
+横向控制	MPC 或 Pure Pursuit	MPC（学习增强）
+纵向控制	PID	                MPC 联合优化
+模型依赖	传统控制算法	依赖预训练神经网络模型
 
 6、autoware_devel/src/universe/autoware_universe/control/autoware_external_cmd_selector/launch/external_cmd_selector.launch.py->autoware_devel/src/universe/autoware_universe/control/autoware_external_cmd_selector/src/autoware_external_cmd_selector/external_cmd_selector_node.cpp
 用于自动驾驶车辆的远程操控场景，允许在本地操作员和远程操作员之间切换控制权
