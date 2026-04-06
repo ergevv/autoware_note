@@ -289,6 +289,8 @@ void Controller::callbackTimerControl()
   publishDebugMarker(*input_data, lat_out);
 
   // 7. publish experimental topic
+  // 横向和纵向控制器可能以不同的频率或步长输出它们的预测序列。
+  // 该函数负责将横向和纵向的预测序列在时间轴上对齐（使用零阶保持 Zero-Order Hold 进行重采样），合并成一个统一的 ControlHorizon 消息。
   if (enable_control_cmd_horizon_pub_) {
     const auto control_horizon =
       mergeLatLonHorizon(lat_out.control_cmd_horizon, lon_out.control_cmd_horizon, this->now());

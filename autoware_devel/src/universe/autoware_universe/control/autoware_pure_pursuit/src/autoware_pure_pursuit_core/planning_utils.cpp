@@ -78,6 +78,7 @@ double calcRadius(
   const geometry_msgs::msg::Point & target, const geometry_msgs::msg::Pose & current_pose)
 {
   constexpr double RADIUS_MAX = 1e9;
+  //transformToRelativeCoordinate2D计算target点在current_pose坐标系下的坐标，current_pose的朝向为x轴，车辆的朝向是x轴，并且这个朝向与圆相切，因此目标点 B 的横向距离其实就是弦长 $L$ 在 Y 轴上的投影
   const double denominator = 2 * transformToRelativeCoordinate2D(target, current_pose).y;
   const double numerator = calcDistSquared2D(target, current_pose.position);
 
@@ -201,6 +202,7 @@ geometry_msgs::msg::Point transformToAbsoluteCoordinate2D(
 // ref: http://www.mech.tohoku-gakuin.ac.jp/rde/contents/course/robotics/coordtrans.html
 // (pu, pv): relative, (px, py): absolute, (ox, oy): origin
 // (pu, pv) = rot^-1 * {(px, py) - (ox, oy)}
+// 将全局点 point 转换到以 origin 为原点和朝向的局部坐标系中。
 geometry_msgs::msg::Point transformToRelativeCoordinate2D(
   const geometry_msgs::msg::Point & point, const geometry_msgs::msg::Pose & origin)
 {

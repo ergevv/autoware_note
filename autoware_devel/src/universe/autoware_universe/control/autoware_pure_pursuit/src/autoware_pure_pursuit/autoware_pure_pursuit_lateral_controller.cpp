@@ -102,12 +102,37 @@ PurePursuitLateralController::PurePursuitLateralController(rclcpp::Node & node)
     "~/output/predicted_trajectory", 1);
 }
 
+// 参数	类型	含义	单位
+// lateral_error	double	横向误差（车辆偏离轨迹的距离）	米 (m)
+// curvature	double	当前轨迹曲率	1/米 (1/m)
+// velocity	double	车辆速度	米/秒 (m/s)
+// min_ld	double	最小前瞻距离	米 (m)
+// is_control_cmd	bool	是否为实际控制命令（用于调试发布）
 double PurePursuitLateralController::calcLookaheadDistance(
   const double lateral_error, const double curvature, const double velocity, const double min_ld,
   const bool is_control_cmd)
 {
+  //   │  速度越高 → 前瞻距离越大 → 提前转向 → 防止振荡               │
+  // │  速度越低 → 前瞻距离越小 → 灵敏转向 → 精确跟踪               │
+  // │                                                             │
+  // │  类比：开车时                                                │
+  // │  • 高速行驶 → 看更远的路况                                   │
+  // │  • 低速行驶 → 看近处的路况                                    │
   const double vel_ld = abs(param_.ld_velocity_ratio * velocity);
+  //   │                    曲率项的作用                              │
+  // │                                                             │
+  // │  曲率大 (急弯) → 前瞻距离减小 → 提前转向 → 避免切弯不足       │
+  // │  曲率小 (直道) → 前瞻距离增大 → 平滑转向 → 避免过度调整       │
+  // │                                                             │
+  // │        急弯 ●────●                                          │
+  // │            ↙   ↑                                            │
+  // │          提前转向  原前瞻点
   const double curvature_ld = -abs(param_.ld_curvature_ratio * curvature);
+
+  //   │  横向误差小 → 误差项 = 0 → 正常跟踪                          │
+  // │  横向误差大 → 误差项 > 0 → 增大前瞻距离 → 平滑回到轨迹        │
+  // │                                                             │
+  // │  目的：防止车辆以大角度切入道路时产生振荡
   double lateral_error_ld = 0.0;
 
   if (abs(lateral_error) >= param_.long_ld_lateral_error_threshold) {
@@ -119,6 +144,16 @@ double PurePursuitLateralController::calcLookaheadDistance(
   const double total_ld =
     std::clamp(vel_ld + curvature_ld + lateral_error_ld, min_ld, param_.max_lookahead_distance);
 
+  enum TYPE {
+    VEL_LD = 0,            // 速度项
+    CURVATURE_LD = 1,      // 曲率项
+    LATERAL_ERROR_LD = 2,  // 误差项
+    TOTAL_LD = 3,          // 总前瞻距离
+    CURVATURE = 4,         // 原始曲率
+    LATERAL_ERROR = 5,     // 原始横向误差
+    VELOCITY = 6,          // 原始速度
+    SIZE                   // 元素总数 = 7
+  };
   auto pubDebugValues = [&]() {
     autoware_internal_debug_msgs::msg::Float32MultiArrayStamped debug_msg{};
     debug_msg.data.resize(TYPE::SIZE);
@@ -162,13 +197,14 @@ void PurePursuitLateralController::setResampledTrajectory()
   // Interpolate with constant interval distance.
   std::vector<double> out_arclength;
   const auto input_tp_array = autoware::motion_utils::convertToTrajectoryPointArray(trajectory_);
-  const auto traj_length = autoware::motion_utils::calcArcLength(input_tp_array);
+  const auto traj_length = autoware::motion_utils::calcArcLength(input_tp_array);  // 计算轨迹弧长
   for (double s = 0; s < traj_length; s += param_.resampling_ds) {
     out_arclength.push_back(s);
   }
   trajectory_resampled_ = std::make_shared<autoware_planning_msgs::msg::Trajectory>(
     autoware::motion_utils::resampleTrajectory(
-      autoware::motion_utils::convertToTrajectory(input_tp_array), out_arclength));
+      autoware::motion_utils::convertToTrajectory(input_tp_array),
+      out_arclength));  // 在指定弧长位置进行插值
   trajectory_resampled_->points.back() = trajectory_.points.back();
   trajectory_resampled_->header = trajectory_.header;
   output_tp_array_ = autoware::motion_utils::convertToTrajectoryPointArray(*trajectory_resampled_);
@@ -278,6 +314,7 @@ boost::optional<Trajectory> PurePursuitLateralController::generatePredictedTraje
     return boost::none;
   }
 
+  // 计算从当前最近点到轨迹终点的弧长总和。
   const double remaining_distance = planning_utils::calcArcLengthFromWayPoint(
     *trajectory_resampled_, *closest_idx_result, trajectory_resampled_->points.size() - 1);
 
@@ -288,6 +325,7 @@ boost::optional<Trajectory> PurePursuitLateralController::generatePredictedTraje
   Trajectory predicted_trajectory;
 
   // Iterative prediction:
+  // 每一步代表车辆向前移动 prediction_ds 米后的状态。
   for (int i = 0; i < num_of_iteration; i++) {
     if (i == 0) {
       // For first point, use the odometry for velocity, and use the current_pose for prediction.
@@ -340,6 +378,7 @@ bool PurePursuitLateralController::isReady([[maybe_unused]] const InputData & in
   return true;
 }
 
+// 这个没有考虑到达前瞻点时的朝向，假设“只要位置跟上了，朝向自然就对了”。适用于高速、平滑道路的场景。
 LateralOutput PurePursuitLateralController::run(const InputData & input_data)
 {
   current_pose_ = input_data.current_odometry.pose.pose;
@@ -347,17 +386,21 @@ LateralOutput PurePursuitLateralController::run(const InputData & input_data)
   current_odometry_ = input_data.current_odometry;
   current_steering_ = input_data.current_steering;
 
-  setResampledTrajectory();
+  setResampledTrajectory();  // 根据弧长采样
   if (param_.enable_path_smoothing) {
     averageFilterTrajectory(*trajectory_resampled_);
   }
+  // 计算前轮转向角度
   const auto cmd_msg = generateOutputControlCmd();
 
   LateralOutput output;
   output.control_cmd = cmd_msg;
-  output.sync_data.is_steer_converged = calcIsSteerConverged(cmd_msg);
+  output.sync_data.is_steer_converged = calcIsSteerConverged(
+    cmd_msg);  // 判断车辆当前的实际转向角是否已经接近目标指令转向角。这个标志位通常用于纵向控制器或状态机，告诉系统“横向控制已稳定”，可以安全地进行加速或执行其他依赖姿态稳定的操作。
 
   // calculate predicted trajectory with iterative calculation
+  // 每一步都重新运行 Pure Pursuit
+  // 算法计算该位置应有的转向角，然后利用自行车模型算出下一个位置。终点：达到预设预测长度或轨迹尽头。
   const auto predicted_trajectory = generatePredictedTrajectory();
   if (!predicted_trajectory) {
     RCLCPP_ERROR(logger_, "Failed to generate predicted trajectory.");
@@ -398,6 +441,7 @@ Lateral PurePursuitLateralController::generateOutputControlCmd()
 
 Lateral PurePursuitLateralController::generateCtrlCmdMsg(const double target_curvature)
 {
+  // 计算前轮角度
   const double tmp_steering =
     planning_utils::convertCurvatureToSteeringAngle(param_.wheel_base, target_curvature);
   Lateral cmd;
@@ -441,16 +485,23 @@ boost::optional<PpOutput> PurePursuitLateralController::calcTargetCurvature(
 
   // calculate the lateral error
 
-  const double lateral_error =
-    autoware::motion_utils::calcLateralOffset(trajectory_resampled_->points, pose.position);
+  const double lateral_error = autoware::motion_utils::calcLateralOffset(
+    trajectory_resampled_->points, pose.position);  // 车身离期望轨迹的横向距离
 
   // calculate the current curvature
 
-  const double current_curvature = calcCurvature(*closest_idx_result);
+  const double current_curvature = calcCurvature(*closest_idx_result);  // 计算当前索引对应的曲率
 
   // Calculate lookahead distance
 
   const bool is_reverse = (target_vel < 0);
+  //   │                    倒车 vs 前进                              │
+  // │                                                             │
+  // │  前进：视野好，稳定性高 → 前瞻距离可以较小                    │
+  // │  倒车：视野差，稳定性低 → 需要更谨慎，前瞻距离通常较大
+  // │  速度越高    → 前瞻距离越大 (防止振荡)                        │
+  // │  曲率越大    → 前瞻距离越小 (提前转向)                        │
+  // │  横向误差越大 → 前瞻距离越大 (尽快回到轨迹)
   const double min_lookahead_distance =
     is_reverse ? param_.reverse_min_lookahead_distance : param_.min_lookahead_distance;
   double lookahead_distance =
@@ -467,6 +518,7 @@ boost::optional<PpOutput> PurePursuitLateralController::calcTargetCurvature(
   pure_pursuit_->setLookaheadDistance(lookahead_distance);
 
   // Run PurePursuit
+  // 计算曲率
   const auto pure_pursuit_result = pure_pursuit_->run();
   if (!pure_pursuit_result.first) {
     return {};
@@ -480,6 +532,8 @@ boost::optional<PpOutput> PurePursuitLateralController::calcTargetCurvature(
   }
   PpOutput output{};
   output.curvature = kappa;
+  //   控制时：遵循规划意图（目标速度）。
+  // 预测时：尊重物理现状（当前速度），从而使预测轨迹更符合车辆短期的实际运动趋势。
   if (!is_control_output) {
     output.velocity = current_odometry_.twist.twist.linear.x;
   } else {

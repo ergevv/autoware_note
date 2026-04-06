@@ -56,7 +56,7 @@ std::pair<bool, double> PurePursuit::run()
   }
 
   auto closest_pair = planning_utils::findClosestIdxWithDistAngThr(
-    *curr_wps_ptr_, *curr_pose_ptr_, closest_thr_dist_, closest_thr_ang_);
+    *curr_wps_ptr_, *curr_pose_ptr_, closest_thr_dist_, closest_thr_ang_); //根据距离和角度阈值的查找最近点索引
 
   if (!closest_pair.first) {
     RCLCPP_WARN(
@@ -65,13 +65,13 @@ std::pair<bool, double> PurePursuit::run()
     return std::make_pair(false, std::numeric_limits<double>::quiet_NaN());
   }
 
-  int32_t next_wp_idx = findNextPointIdx(closest_pair.second);
+  int32_t next_wp_idx = findNextPointIdx(closest_pair.second); //从指定索引开始遍历路径点，排除不符合行驶方向（前/后）的点，找到第一个距离车辆超过预瞄距离 lookahead_distance_ 的路径点作为控制目标
   if (next_wp_idx == -1) {
     RCLCPP_WARN(logger, "lost next waypoint");
     return std::make_pair(false, std::numeric_limits<double>::quiet_NaN());
   }
 
-  loc_next_wp_ = curr_wps_ptr_->at(next_wp_idx).position;
+  loc_next_wp_ = curr_wps_ptr_->at(next_wp_idx).position;  //第一个大于预瞄距离的前瞻点位置
 
   geometry_msgs::msg::Point next_tgt_pos;
   // if next waypoint is first
@@ -79,7 +79,7 @@ std::pair<bool, double> PurePursuit::run()
     next_tgt_pos = curr_wps_ptr_->at(next_wp_idx).position;
   } else {
     // linear interpolation
-    std::pair<bool, geometry_msgs::msg::Point> lerp_pair = lerpNextTarget(next_wp_idx);
+    std::pair<bool, geometry_msgs::msg::Point> lerp_pair = lerpNextTarget(next_wp_idx); //所以这里需要插值，根据前瞻距离跟横向偏移，计算前瞻点位置
 
     if (!lerp_pair.first) {
       RCLCPP_WARN(logger, "lost target! ");
@@ -90,6 +90,7 @@ std::pair<bool, double> PurePursuit::run()
   }
   loc_next_tgt_ = next_tgt_pos;
 
+  // Pure Pursuit 算法假设车辆沿着一个圆弧行驶到达目标点。求这个圆的曲率
   double kappa = planning_utils::calcCurvature(next_tgt_pos, *curr_pose_ptr_);
 
   return std::make_pair(true, kappa);
@@ -112,9 +113,9 @@ std::pair<bool, geometry_msgs::msg::Point> PurePursuit::lerpNextTarget(int32_t n
   }
 
   const double lateral_error =
-    planning_utils::calcLateralError2D(vec_start, vec_end, curr_pose.position);
+    planning_utils::calcLateralError2D(vec_start, vec_end, curr_pose.position); //计算车辆位置到路径线段的横向误差（垂直距离）
 
-  if (fabs(lateral_error) > lookahead_distance_) {
+  if (fabs(lateral_error) > lookahead_distance_) { //检查横向误差的绝对值是否大于预瞄距离 lookahead_distance_（意味着以预瞄距离为半径的圆无法与路径线段相交）。
     RCLCPP_ERROR(logger, "lateral error is larger than lookahead distance");
     RCLCPP_ERROR(
       logger, "lateral error: %lf, lookahead distance: %lf", lateral_error, lookahead_distance_);
@@ -128,6 +129,7 @@ std::pair<bool, geometry_msgs::msg::Point> PurePursuit::lerpNextTarget(int32_t n
     (lateral_error > 0) ? Eigen::Rotation2Dd(-M_PI / 2.0) : Eigen::Rotation2Dd(M_PI / 2.0);
   Eigen::Vector2d uva2d_rot = rot * uva2d;
 
+  // 计算垂足坐标，车身到起始位置和终点位置的垂足
   geometry_msgs::msg::Point h;
   h.x = curr_pose.position.x + fabs(lateral_error) * uva2d_rot.x();
   h.y = curr_pose.position.y + fabs(lateral_error) * uva2d_rot.y();
@@ -135,11 +137,11 @@ std::pair<bool, geometry_msgs::msg::Point> PurePursuit::lerpNextTarget(int32_t n
 
   // if there is a intersection
   if (fabs(fabs(lateral_error) - lookahead_distance_) < ERROR2) {
-    return std::make_pair(true, h);
+    return std::make_pair(true, h);  //如果是相切情况，直接返回垂足 h 作为目标点。
   } else {
     // if there are two intersection
     // get intersection in front of vehicle
-    const double s = sqrt(pow(lookahead_distance_, 2) - pow(lateral_error, 2));
+    const double s = sqrt(pow(lookahead_distance_, 2) - pow(lateral_error, 2)); //前瞻距离-横向误差，获取轨迹上的距离
     geometry_msgs::msg::Point res;
     res.x = h.x + s * uva2d.x();
     res.y = h.y + s * uva2d.y();
@@ -148,7 +150,7 @@ std::pair<bool, geometry_msgs::msg::Point> PurePursuit::lerpNextTarget(int32_t n
   }
 }
 
-int32_t PurePursuit::findNextPointIdx(int32_t search_start_idx)
+int32_t PurePursuit::findNextPointIdx(int32_t search_start_idx)  //从指定索引开始遍历路径点，排除不符合行驶方向（前/后）的点，找到第一个距离车辆超过预瞄距离 lookahead_distance_ 的路径点作为控制目标
 {
   // if waypoints are not given, do nothing.
   if (curr_wps_ptr_->empty() || search_start_idx == -1) {
@@ -163,10 +165,10 @@ int32_t PurePursuit::findNextPointIdx(int32_t search_start_idx)
     }
 
     // if waypoint direction is forward
-    const auto gld = planning_utils::getLaneDirection(*curr_wps_ptr_, 0.05);
+    const auto gld = planning_utils::getLaneDirection(*curr_wps_ptr_, 0.05); //获取车道方向（0 表示向前，1 表示向后）。
     if (gld == 0) {
       // if waypoint is not in front of ego, skip
-      auto ret = planning_utils::transformToRelativeCoordinate2D(
+      auto ret = planning_utils::transformToRelativeCoordinate2D( //当前路径点坐标转换到车辆相对坐标系下。
         curr_wps_ptr_->at(i).position, *curr_pose_ptr_);
       if (ret.x < 0) {
         continue;
