@@ -11,6 +11,7 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_control_launch/launch
 命令滤波：确保控制命令在安全范围内
 状态发布：向下游节点发布控制命令和状态信息
 vehicle_cmd_gate 订阅 transition_manager 发布的 OperationModeState，如何安全地执行控制命令
+检测规划决策是否合适，根据自动驾驶模式和远程控制模式，过滤异常输入和转发控制命令，异常时候停止车辆运动
 
 3、autoware_devel/src/universe/autoware_universe/control/autoware_operation_mode_transition_manager/src/node.cpp
 自动驾驶模式切换: 安全地在手动和自动驾驶模式之间切换
@@ -21,6 +22,16 @@ vehicle_cmd_gate 订阅 transition_manager 发布的 OperationModeState，如何
 
 *4、autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
 根据参考轨迹计算车辆的横向（转向）和纵向（速度/加速度）控制命令
+横向控制：MPC、Pure Pursuit
+| 特性 | Pure Pursuit (纯跟踪) | MPC (模型预测控制) |
+| :--- | :--- | :--- |
+| 控制逻辑 | 几何方法。模拟人类驾驶行为：在前方路径上找一个“预瞄点”（Lookahead Point），计算使车辆朝向该点行驶所需的圆弧曲率，从而得出转向角。 | 优化方法。基于车辆的动力学或运动学模型，预测未来一段时间内的轨迹。通过求解一个带约束的优化问题（最小化误差、控制量变化等），计算出当前最优的控制指令。 |
+| 数学基础 | 简单的三角几何关系（阿克曼转向几何）。 | 线性/非线性规划、二次规划 (QP)、状态空间方程。 |
+| 前视距离 | 依赖固定的或速度相关的预瞄距离。距离太短会导致震荡，太长会导致响应滞后。 | 依赖预测时域 (Prediction Horizon)。它在整个时域内考虑路径，不需要单一的预瞄点。 |
+| 约束处理 | 难以处理约束。无法直接考虑转向角速度限制、最大转角限制或障碍物避让约束（除非外层修改路径）。 | 天然支持约束。可以将转向角极限、转向角速度极限、加速度限制等直接作为优化问题的约束条件求解。 |
+
+
+纵向控制：PID
 
 │                    MPC 的核心三要素                          │
 ├─────────────────────────────────────────────────────────────┤

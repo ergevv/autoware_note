@@ -35,10 +35,10 @@ namespace
 {
 const char * getGateModeName(const GateMode::_data_type & gate_mode)
 {
-  if (gate_mode == GateMode::AUTO) {
+  if (gate_mode == GateMode::AUTO) { //自动驾驶模式，rviz上有这个auto模式，使用这个模式会自动规划和控制
     return "AUTO";
   }
-  if (gate_mode == GateMode::EXTERNAL) {
+  if (gate_mode == GateMode::EXTERNAL) { //外部控制模式，允许工作人员远程控制车辆
     return "EXTERNAL";
   }
   return "NOT_SUPPORTED";

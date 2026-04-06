@@ -418,6 +418,11 @@ trajectory_follower::LongitudinalOutput PidLongitudinalController::run(
   // calculate current pose and control data
   geometry_msgs::msg::Pose current_pose = m_current_kinematic_state.pose.pose;
 
+  // 定位：确定车在轨迹上的确切位置（插值）。
+  // 预测：考虑系统延迟，预测控制执行时的车辆位置和状态。
+  // 对齐：在处理轨迹数据（去重）后，重新校准索引以确保准确性。
+  // 环境感知：计算道路坡度，并根据配置策略融合 IMU 数据和地图轨迹数据，为坡度补偿提供依据。
+  // 状态准备：计算停车距离和档位，为状态机跳转做准备。
   const auto control_data = getControlData(current_pose);
 
   // update control state
@@ -450,7 +455,7 @@ PidLongitudinalController::ControlData PidLongitudinalController::getControlData
   ControlData control_data{};
 
   // dt
-  control_data.dt = getDt();
+  control_data.dt = getDt();  // 计算当前时间与上一次成功控制的时间间隔？
 
   // current velocity and acceleration
   control_data.current_motion.vel = m_current_kinematic_state.twist.twist.linear.x;
@@ -458,13 +463,16 @@ PidLongitudinalController::ControlData PidLongitudinalController::getControlData
   control_data.interpolated_traj = m_trajectory;
 
   // calculate the interpolated point and segment
-  const auto current_interpolated_pose =
-    calcInterpolatedTrajPointAndSegment(control_data.interpolated_traj, current_pose);
+  const auto current_interpolated_pose = calcInterpolatedTrajPointAndSegment(
+    control_data.interpolated_traj,
+    current_pose);  // 根据车辆当前位姿 current_pose
+                    // 在轨迹上找到最近的线段，并线性插值出一个精确位于车辆横向投影位置的轨迹点
 
   // Insert the interpolated point
   control_data.interpolated_traj.points.insert(
     control_data.interpolated_traj.points.begin() + current_interpolated_pose.second + 1,
-    current_interpolated_pose.first);
+    current_interpolated_pose.first);  // 将车辆当前位姿对应的插值点插入到轨迹中，插入位置为最近线段的后一个位置，即
+                                       // current_interpolated_pose.second + 1
   control_data.nearest_idx = current_interpolated_pose.second + 1;
   control_data.target_idx = control_data.nearest_idx;
   const auto nearest_point = current_interpolated_pose.first;
@@ -472,17 +480,21 @@ PidLongitudinalController::ControlData PidLongitudinalController::getControlData
 
   // Delay compensation - Calculate the distance we got, predicted velocity and predicted
   // acceleration after delay
-  control_data.state_after_delay =
-    predictedStateAfterDelay(control_data.current_motion, m_delay_compensation_time);
+  control_data.state_after_delay = predictedStateAfterDelay(
+    control_data.current_motion,
+    m_delay_compensation_time);  // 预测经过m_delay_compensation_time秒后车辆的状态
 
   // calculate the target motion for delay compensation
   constexpr double min_running_dist = 0.01;
+  // 判断是否需要补偿：如果预测的行驶距离大于阈值（0.01米），则进行补偿。
   if (control_data.state_after_delay.running_distance > min_running_dist) {
-    control_data.interpolated_traj.points =
-      autoware::motion_utils::removeOverlapPoints(control_data.interpolated_traj.points);
+    control_data.interpolated_traj.points = autoware::motion_utils::removeOverlapPoints(
+      control_data.interpolated_traj.points);  // 在查找目标点之前，先移除轨迹中的重叠点
+    // 从当前的 nearest_idx 开始，沿着轨迹向前寻找距离为 running_distance 的位置 target_pose。
     const auto target_pose = longitudinal_utils::findTrajectoryPoseAfterDistance(
       control_data.nearest_idx, control_data.state_after_delay.running_distance,
       control_data.interpolated_traj);
+    // 在这个预测的目标位姿处，再次进行线性插值
     const auto target_interpolated_point =
       calcInterpolatedTrajPointAndSegment(control_data.interpolated_traj, target_pose);
     control_data.target_idx = target_interpolated_point.second + 1;
@@ -500,8 +512,13 @@ PidLongitudinalController::ControlData PidLongitudinalController::getControlData
   // to tell if our `control_data.target_idx` point still exists or removed.
   // ==========================================================================================
   // Remove overlapped points after inserting the interpolated points
+  // 再次去重：由于之前插入了两个新点（当前点和预测点），可能会产生新的重叠点
   control_data.interpolated_traj.points =
     autoware::motion_utils::removeOverlapPoints(control_data.interpolated_traj.points);
+  // 重要提示：注释指出，去重操作会导致之前计算的索引 nearest_idx 和 target_idx
+  // 失效（因为点数减少了，索引偏移了）。 重新搜索索引： 利用之前保存的 nearest_point.pose 和
+  // target_point.pose（位姿信息不受去重影响），在去重后的轨迹中重新搜索最近的点。
+
   control_data.nearest_idx = autoware::motion_utils::findFirstNearestIndexWithSoftConstraints(
     control_data.interpolated_traj.points, nearest_point.pose, m_ego_nearest_dist_threshold,
     m_ego_nearest_yaw_threshold);
@@ -516,25 +533,27 @@ PidLongitudinalController::ControlData PidLongitudinalController::getControlData
     control_data.interpolated_traj.points.at(control_data.target_idx).longitudinal_velocity_mps);
 
   // shift
-  control_data.shift = getCurrentShift(control_data);
+  control_data.shift = getCurrentShift(control_data);  // 根据目标点判断车辆前进还是后退
   if (control_data.shift != m_prev_shift) {
-    m_pid_vel.reset();
+    m_pid_vel.reset();  // 档位发生变化（例如从前进切换到后退），重置 PID 控制器
+                        // m_pid_vel，防止积分项累积导致控制突变。
   }
   m_prev_shift = control_data.shift;
 
   // distance to stopline
   control_data.stop_dist = longitudinal_utils::calcStopDistance(
     current_pose, control_data.interpolated_traj, m_ego_nearest_dist_threshold,
-    m_ego_nearest_yaw_threshold);
+    m_ego_nearest_yaw_threshold);  // 计算车辆当前位置到轨迹中第一个速度为0的点（停车点）的距离。这个距离用于状态机判断是否进入停车或减速状态
 
   // pitch
   // NOTE: getPitchByTraj() calculates the pitch angle as defined in
   // ../media/slope_definition.drawio.svg while getPitchByPose() is not, so `raw_pitch` is reversed
-  const double raw_pitch = (-1.0) * longitudinal_utils::getPitchByPose(current_pose.orientation);
-  m_lpf_pitch->filter(raw_pitch);
+  const double raw_pitch = (-1.0) * longitudinal_utils::getPitchByPose(current_pose.orientation);  // 获取车辆当前位置的俯仰角，乘以了 -1.0 以统一坐标系定义。
+  m_lpf_pitch->filter(raw_pitch); //跟上一次俯仰角做一次加权过滤，得到当前俯仰角的加权值
   const double traj_pitch = longitudinal_utils::getPitchByTraj(
-    control_data.interpolated_traj, control_data.target_idx, m_wheel_base);
+    control_data.interpolated_traj, control_data.target_idx, m_wheel_base); //根据轨迹点在 target_idx(预测位置) 处的几何形状（考虑轴距 m_wheel_base）计算出的坡度。这反映了前方道路的倾斜情况。
 
+  // 选择合适的值作为当前车辆所在位置的坡度。
   if (m_slope_source == SlopeSource::RAW_PITCH) {
     control_data.slope_angle = m_lpf_pitch->getValue();
   } else if (m_slope_source == SlopeSource::TRAJECTORY_PITCH) {
@@ -542,6 +561,10 @@ PidLongitudinalController::ControlData PidLongitudinalController::getControlData
   } else if (
     m_slope_source == SlopeSource::TRAJECTORY_ADAPTIVE ||
     m_slope_source == SlopeSource::TRAJECTORY_GOAL_ADAPTIVE) {
+    // RAJECTORY_ADAPTIVE / TRAJECTORY_GOAL_ADAPTIVE（自适应模式）：
+    // 如果车速很低（is_vel_slow）或者接近轨迹终点（is_close_to_trajectory_end），使用 IMU 坡度（因为此时轨迹曲率大或结束，几何坡度可能不准或无意义）。
+    // 否则，使用轨迹坡度。
+    // 变化率限制：如果使用了自适应模式，会对坡度的变化率进行限制（Clamp），基于最大/最小加加速度（Jerk）和重力常数，防止坡度估计突变导致加速度指令跳变。
     // if velocity is high, use target idx for slope, otherwise, use raw_pitch
     const bool is_vel_slow = control_data.current_motion.vel < m_adaptive_trajectory_velocity_th &&
                              m_slope_source == SlopeSource::TRAJECTORY_ADAPTIVE;

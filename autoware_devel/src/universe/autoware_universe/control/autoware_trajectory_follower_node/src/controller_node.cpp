@@ -62,7 +62,7 @@ Controller::Controller(const rclcpp::NodeOptions & node_options) : Node("control
   enable_control_cmd_horizon_pub_ =
     declare_parameter<bool>("enable_control_cmd_horizon_pub", false);
 
-  diag_updater_->setHardwareID("trajectory_follower_node");
+  diag_updater_->setHardwareID("trajectory_follower_node"); //设置诊断消息中的硬件标识符，识别是哪个节点发布的诊断消息，最初设计用于监控物理硬件，保持诊断消息格式统一，实际含义是"模块标识"
 
   const auto lateral_controller_mode =
     getLateralControllerMode(declare_parameter<std::string>("lateral_controller_mode"));
@@ -74,7 +74,7 @@ Controller::Controller(const rclcpp::NodeOptions & node_options) : Node("control
     }
     case LateralControllerMode::PURE_PURSUIT: {
       lateral_controller_ =
-        std::make_shared<autoware::pure_pursuit::PurePursuitLateralController>(*this);
+        std::make_shared<autoware::pure_pursuit::PurePursuitLateralController>(*this); //初始化参数
       break;
     }
     default:
@@ -87,7 +87,7 @@ Controller::Controller(const rclcpp::NodeOptions & node_options) : Node("control
     case LongitudinalControllerMode::PID: {
       longitudinal_controller_ =
         std::make_shared<pid_longitudinal_controller::PidLongitudinalController>(
-          *this, diag_updater_);
+          *this, diag_updater_); //初始化参数，定义pid和各种情况下的加速度
       break;
     }
     default:
@@ -200,15 +200,46 @@ boost::optional<trajectory_follower::InputData> Controller::createInputData(rclc
   }
 
   trajectory_follower::InputData input_data;
-  input_data.current_trajectory = *current_trajectory_ptr_;
-  input_data.current_odometry = *current_odometry_ptr_;
-  input_data.current_steering = *current_steering_ptr_;
+  input_data.current_trajectory = *current_trajectory_ptr_; //包含多个点的位姿、速度、加速度之类的轨迹信息
+  input_data.current_odometry = *current_odometry_ptr_; 
+  input_data.current_steering = *current_steering_ptr_; // 当前轮胎转向角 [rad]，来自车辆转向角传感器（方向盘控制输出），仿真：autoware_devel/src/universe/autoware_universe/simulator/autoware_carla_interface/src/autoware_carla_interface/carla_ros.py
   input_data.current_accel = *current_accel_ptr_;
   input_data.current_operation_mode = *current_operation_mode_ptr_;
 
   return input_data;
 }
 
+// ┌─────────────────────────────────────────────────────────────────────┐
+// │                        外部传感器/系统                               │
+// ├─────────────┬─────────────┬─────────────┬─────────────┬─────────────┤
+// │   规划模块   │  定位模块    │  车辆状态    │  车辆状态    │  系统模块   │
+// │  Trajectory │  Odometry   │  Steering   │   Accel     │  Op Mode   │
+// └──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┘
+//        │             │             │             │             │
+//        ↓             ↓             ↓             ↓             ↓
+//    sub_ref_path_ sub_odometry_ sub_steering_ sub_accel_ sub_operation_mode_
+//        │             │             │             │             │
+//        └─────────────┴─────────────┴─────────────┴─────────────┘
+//                                 │
+//                                 ↓
+//                     ┌───────────────────────┐
+//                     │   trajectory_follower │
+//                     │       ::InputData     │
+//                     │  ┌─────────────────┐  │
+//                     │  │ current_trajectory │
+//                     │  │ current_odometry   │
+//                     │  │ current_steering   │
+//                     │  │ current_accel      │
+//                     │  │ current_operation_mode │
+//                     │  └─────────────────┘  │
+//                     └───────────┬───────────┘
+//                                 │
+//                ┌────────────────┴────────────────┐
+//                ↓                                 ↓
+//     ┌──────────────────────┐        ┌──────────────────────┐
+//     │  横向控制器           │        │  纵向控制器           │
+//     │  (MPC/Pure Pursuit)  │        │  (PID)               │
+//     └──────────────────────┘        └──────────────────────┘
 void Controller::callbackTimerControl()
 {
   autoware_control_msgs::msg::Control out;
