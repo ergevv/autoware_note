@@ -50,10 +50,16 @@ ResultWithReason MPC::calculateMPC(
 {
   // since the reference trajectory does not take into account the current velocity of the ego
   // vehicle, it needs to calculate the trajectory velocity considering the longitudinal dynamics.
+  // 背景：上游规划模块给出的轨迹速度 (vx) 通常是理想化的，可能没有充分考虑车辆当前的实际速度和加速度限制（例如，规划说下一秒速度达到 10m/s，但车辆当前只有 2m/s 且加速度有限）。
+  // 作用：根据车辆当前的实际速度、最大加速度限制 (acceleration_limit) 和时间常数，重新计算参考轨迹上每个点的“可达速度”。这确保了 MPC 基于一个物理上可实现的纵向速度分布来进行横向控制预测。
   const auto reference_trajectory =
     applyVelocityDynamicsFilter(m_reference_trajectory, current_kinematics);
 
   // get the necessary data
+  // 找到自车在参考轨迹上的最近点索引、时间、位姿。
+  // 误差计算：计算横向误差 (lateral_err) 和航向角误差 (yaw_err)。
+  // 转向预测：通过 SteeringPredictor 估算由于执行器延迟导致的“未来实际转向角” (predicted_steer)。
+  // 有效性检查：检查参考轨迹是否足够长以覆盖预测时域。
   const auto [get_data_result, mpc_data] =
     getData(reference_trajectory, current_steer, current_kinematics);
   if (!get_data_result.result) {
@@ -61,9 +67,13 @@ ResultWithReason MPC::calculateMPC(
   }
 
   // calculate initial state of the error dynamics
+  // 设置初始状态
   const auto x0 = getInitialState(mpc_data);
 
   // apply time delay compensation to the initial state
+  // 背景：从计算控制指令到指令真正作用于车辆（转向轮转动）存在硬件延迟（input_delay）。MPC 需要预测的是“延迟结束后”的状态，而不是“当前”状态。
+  // 逻辑：利用车辆模型和历史控制指令缓冲区 (m_input_buffer)，将初始状态 $x_0$ 向前推演 input_delay 时长，得到 $x_{0_delayed}$。
+  // 意义：确保 MPC 优化的起点是车辆在执行新指令时的真实预期状态，显著提高跟踪精度。
   const auto [success_delay, x0_delayed] =
     updateStateForDelayCompensation(reference_trajectory, mpc_data.nearest_time, x0);
   if (!success_delay) {
@@ -71,7 +81,10 @@ ResultWithReason MPC::calculateMPC(
   }
 
   // resample reference trajectory with mpc sampling time
+  // MPC 预测的起始点是 当前最近点时间 + 输入延迟。
   const double mpc_start_time = mpc_data.nearest_time + m_param.input_delay;
+  // 确定步长：调用 getPredictionDeltaTime 计算离散时间步长 prediction_dt。这个步长是动态调整的，以确保预测时域覆盖足够的纵向距离 (min_prediction_length)。
+  // 重采样：MPC 需要在等时间间隔的点上进行离散化建模。此步骤通过线性插值，从参考轨迹中提取出 N 个（prediction_horizon）等时间间隔的点，形成 mpc_resampled_ref_trajectory。
   const double prediction_dt =
     getPredictionDeltaTime(mpc_start_time, reference_trajectory, current_kinematics);
 
@@ -83,9 +96,18 @@ ResultWithReason MPC::calculateMPC(
   }
 
   // generate mpc matrix : predict equation Xec = Aex * x0 + Bex * Uex + Wex
+  // $A_{ex}, B_{ex}, W_{ex}$：描述状态如何随控制和初始状态演化。
+  // $Q_{ex}, R_{ex}$：权重矩阵，决定了对误差和控制量的惩罚程度（可能随速度或曲率自适应调整）。
+  // $U_{ref_ex}$：前馈控制量参考值（通常由曲率决定 $\delta_{ff} = L \cdot k$）。
   const auto mpc_matrix = generateMPCMatrix(mpc_resampled_ref_trajectory, prediction_dt);
 
   // solve Optimization problem
+  // 输入：预测矩阵、延迟后的初始状态、参考轨迹、当前车速。
+  // 过程：
+  // 构建二次规划（QP）问题的 H 矩阵和 f 向量。
+  // 构建约束矩阵（转向角限制、转向角速度限制）。
+  // 调用 QP 求解器（如 OSQP）求解最优控制序列 $U_{ex}$。
+  // 输出：$U_{ex}$ 是一个向量，包含了未来 N 个时刻的最优转向角指令。
   const auto [opt_result, Uex] = executeOptimization(
     mpc_matrix, x0_delayed, prediction_dt, mpc_resampled_ref_trajectory,
     current_kinematics.twist.twist.linear.x);
@@ -99,6 +121,7 @@ ResultWithReason MPC::calculateMPC(
 
   // set control command
   ctrl_cmd.steering_tire_angle = static_cast<float>(u_filtered);
+  // 为了告诉底盘控制器以多快的速度转动方向盘，代码计算了从“当前实际转向角”到“目标转向角”的变化率，或者基于预测状态的转向角变化率。这有助于提高控制的动态响应性能。
   ctrl_cmd.steering_tire_rotation_rate = static_cast<float>(calcDesiredSteeringRate(
     mpc_matrix, x0_delayed, Uex, u_filtered, current_steer.steering_tire_angle, prediction_dt));
 
@@ -133,6 +156,7 @@ ResultWithReason MPC::calculateMPC(
     generateDiagData(reference_trajectory, mpc_data, mpc_matrix, ctrl_cmd, Uex, current_kinematics);
 
   // create LateralHorizon command
+  // 计算出了未来一系列的最优转向角 $U_{ex}$。
   ctrl_cmd_horizon.time_step_ms = prediction_dt * 1000.0;
   ctrl_cmd_horizon.controls.clear();
   ctrl_cmd_horizon.controls.push_back(ctrl_cmd);
@@ -200,16 +224,21 @@ void MPC::setReferenceTrajectory(
   const Trajectory & trajectory_msg, const TrajectoryFilteringParam & param,
   const Odometry & current_kinematics)
 {
+  // 在接收到的轨迹中找到距离自车当前位置最近的线段索引
   const size_t nearest_seg_idx =
     autoware::motion_utils::findFirstNearestSegmentIndexWithSoftConstraints(
       trajectory_msg.points, current_kinematics.pose.pose, ego_nearest_dist_threshold,
       ego_nearest_yaw_threshold);
+  // 计算自车位置在该线段上的纵向偏移量
   const double ego_offset_to_segment = autoware::motion_utils::calcLongitudinalOffsetToSegment(
     trajectory_msg.points, nearest_seg_idx, current_kinematics.pose.pose.position);
 
+  // MPCTrajectory 通常包含 x, y, yaw, vx, k (曲率), smooth_k (平滑曲率), relative_time
+  // 等数组，便于数学运算。
   const auto mpc_traj_raw = MPCUtils::convertToMPCTrajectory(trajectory_msg);
 
   // resampling
+  // 使用样条插值（Spline Interpolation），按照固定的距离间隔 param.traj_resample_dist重新生成轨迹点。
   const auto [success_resample, mpc_traj_resampled] = MPCUtils::resampleMPCTrajectoryByDistance(
     mpc_traj_raw, param.traj_resample_dist, nearest_seg_idx, ego_offset_to_segment);
   if (!success_resample) {
@@ -217,6 +246,7 @@ void MPC::setReferenceTrajectory(
     return;
   }
 
+  // 判断车辆是前进还是后退。
   const auto is_forward_shift =
     autoware::motion_utils::isDrivingForward(mpc_traj_resampled.toTrajectoryPoints());
 
@@ -224,6 +254,7 @@ void MPC::setReferenceTrajectory(
   m_is_forward_shift = is_forward_shift ? is_forward_shift.value() : m_is_forward_shift;
 
   // path smoothing
+  // 如果启用了 enable_path_smoothing 且点数足够，对 x, y, yaw, vx 分别进行移动平均滤波 (Moving Average Filter)。
   MPCTrajectory mpc_traj_smoothed = mpc_traj_resampled;  // smooth filtered trajectory
   const int mpc_traj_resampled_size = static_cast<int>(mpc_traj_resampled.size());
   if (
@@ -246,16 +277,25 @@ void MPC::setReferenceTrajectory(
    * attitude angle well, resulting in improved control performance. If the trajectory is
    * well-defined considering the end point attitude angle, this feature is not necessary.
    */
+
+  // 背景：MPC 是一个有限 horizon 的控制器。如果预测时域超出了规划轨迹的末端，MPC 就不知道末端之后的路径走向（曲率和航向）。
+  // 做法：在轨迹末尾，沿着最后一个点的航向角方向，额外延伸几个点。
+  // 效果：让 MPC “看到”终点之后的一段直路（或延续方向），避免车辆在接近轨迹终点时因为缺乏未来信息而提前减速或产生不必要的转向调整。
   if (param.extend_trajectory_for_end_yaw_control) {
     MPCUtils::extendTrajectoryInYawDirection(
       mpc_traj_raw.yaw.back(), param.traj_resample_dist, m_is_forward_shift, mpc_traj_smoothed);
   }
 
   // calculate yaw angle
+  // 重算 Yaw：经过平滑和扩展后，原有的 yaw 值可能不再准确或与 x,y 坐标不匹配。这里根据 x, y 坐标差分重新计算航向角。
+  // 单调化：convertEulerAngleToMonotonic 确保 yaw 角是连续变化的（例如从 3.14 变到 -3.14 时，处理后变为 3.14 变到 3.14+epsilon，而不是跳变）。这对于计算航向误差和微分至关重要。
   MPCUtils::calcTrajectoryYawFromXY(mpc_traj_smoothed, m_is_forward_shift);
   MPCUtils::convertEulerAngleToMonotonic(mpc_traj_smoothed.yaw);
 
   // calculate curvature
+  // 计算轨迹上每个点的曲率 k 和平滑曲率 smooth_k
+  // k：用于动力学模型预测。
+  // smooth_k：主要用于计算前馈控制量（Feed-forward steering angle），即 $\delta_{ff} = L \cdot k$。平滑后的曲率能提供更稳定的前馈指令。
   MPCUtils::calcTrajectoryCurvature(
     param.curvature_smoothing_num_traj, param.curvature_smoothing_num_ref_steer, mpc_traj_smoothed);
 
@@ -263,6 +303,10 @@ void MPC::setReferenceTrajectory(
   mpc_traj_smoothed.vx.back() = 0.0;
 
   // add a extra point on back with extended time to make the mpc stable.
+  // 末端速度：强制将轨迹最后一个有效点的速度设为 0，确保车辆能在终点停下。
+  // 时间扩展技巧：
+  // 复制最后一个点，将其 relative_time 增加一个很大的值（100秒）。
+  // 目的：MPC 在进行时间插值或计算预测时域时，需要保证预测 horizon 内的时间点都在轨迹的时间范围内。如果轨迹太短，MPC 可能会因为查询超出范围的时间点而报错。添加这个“虚拟”的远端点，相当于告诉 MPC：“在这个时间点之后，车辆一直保持在终点状态”，从而保证数值计算的稳定性，防止因轨迹过短导致的索引越界或插值错误。
   auto last_point = mpc_traj_smoothed.back();
   last_point.relative_time += 100.0;  // extra time to prevent mpc calc failure due to short time
   last_point.vx = 0.0;                // stop velocity at a terminal point

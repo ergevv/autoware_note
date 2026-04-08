@@ -237,7 +237,7 @@ boost::optional<trajectory_follower::InputData> Controller::createInputData(rclc
 //                ┌────────────────┴────────────────┐
 //                ↓                                 ↓
 //     ┌──────────────────────┐        ┌──────────────────────┐
-//     │  横向控制器           │        │  纵向控制器           │
+//     │  横向控制器           │         │  纵向控制器           │
 //     │  (MPC/Pure Pursuit)  │        │  (PID)               │
 //     └──────────────────────┘        └──────────────────────┘
 void Controller::callbackTimerControl()

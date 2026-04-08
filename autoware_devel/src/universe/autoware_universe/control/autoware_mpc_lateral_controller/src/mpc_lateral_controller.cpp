@@ -162,6 +162,31 @@ MpcLateralController::~MpcLateralController()
 {
 }
 
+/*
+1. 运动学自行车模型 (kinematics)
+特点:
+基于运动学 (Kinematics) 原理，忽略轮胎侧偏、悬挂动力学等力学因素。
+假设车轮纯滚动，无侧滑。
+包含转向延迟: 构造函数中传入了
+steer_tau，表示该模型考虑了转向执行机构的一阶延迟特性（即指令转角与实际转角之间存在动态响应过程）。
+适用场景:
+低速或中速行驶，路面附着力良好，对计算效率要求较高，且需要一定精度的场景。这是自动驾驶中最常用的简化模型。
+2. 无延迟运动学自行车模型 (kinematics_no_delay)
+特点:
+同样基于运动学原理。
+忽略转向延迟: 假设转向指令瞬间生效，实际转角等于指令转角。
+模型复杂度最低，计算量最小。
+适用场景:
+极低速场景，或者转向系统响应极快、延迟可忽略不计的情况。也常用于快速原型验证或对实时性要求极高的嵌入式平台。
+3. 动力学自行车模型 (dynamics)
+特点:
+基于动力学 (Dynamics) 原理，考虑了力的作用。
+考虑轮胎侧偏: 引入了轮胎 cornering stiffness (cf, cr) 和各个车轮的质量分布 (mass_fl, mass_fr,
+mass_rl, mass_rr)。 能够模拟高速转弯时的车身侧倾、轮胎侧滑等现象。
+模型最复杂，计算量最大，需要更多的车辆物理参数。
+适用场景:
+高速行驶、极限工况（如紧急避障）、低附着力路面（如雨雪天），此时车辆的力学行为对轨迹跟踪精度影响显著，运动学模型误差过大。
+*/
 std::shared_ptr<VehicleModelInterface> MpcLateralController::createVehicleModel(
   const double wheelbase, const double steer_lim, const double steer_tau, rclcpp::Node & node)
 {
@@ -205,11 +230,20 @@ std::shared_ptr<QPSolverInterface> MpcLateralController::createQPSolverInterface
   const std::string qp_solver_type = node.declare_parameter<std::string>("qp_solver_type");
 
   if (qp_solver_type == "unconstraint_fast") {
+    // 无约束：严格来说，它求解的是最小二乘问题（Least
+    // Squares），通常用于处理没有硬约束（或约束已被简化/忽略）的情况，或者作为有约束求解器的初始猜测。
+    // 快速：基于 Eigen 库的 LLT 分解（Cholesky
+    // 分解），计算速度极快，适合对实时性要求极高且工况简单的场景。
+    // 适用性：通常在路径非常平滑、车辆远离边界、不需要严格满足转向角速度限制等复杂约束时使用。
     qpsolver_ptr = std::make_shared<QPSolverEigenLeastSquareLLT>();
     return qpsolver_ptr;
   }
 
   if (qp_solver_type == "osqp") {
+    // OSQP (Operator Splitting Quadratic Program)：一个开源的、基于算子分裂法的凸二次规划求解器。
+    // 支持约束：能够处理不等式约束（如最大转向角、最大转向角速度、最大横向误差等）。
+    // 鲁棒性：在自动驾驶中更常用，因为它能保证控制指令在物理限制范围内，提高安全性和舒适性。
+    // 计算量：相比无约束求解器，计算开销稍大，但仍在实时可控范围内。
     qpsolver_ptr = std::make_shared<QPSolverOSQP>(logger_, clock_);
     return qpsolver_ptr;
   }
@@ -226,6 +260,10 @@ std::shared_ptr<SteeringOffsetEstimator> MpcLateralController::createSteerOffset
   const auto steer_thres = node.declare_parameter<double>(ns + "update_steer_threshold");
   const auto limit = node.declare_parameter<double>(ns + "steering_offset_limit");
   const auto num = node.declare_parameter<int>(ns + "average_num");
+  // 在实车控制中由于机械装配误差、轮胎磨损或传感器校准问题，当车辆直线行驶时，转向盘或转向轮的读数可能不为零（例如显示为
+  // 0.5度）。如果直接使用这个带有偏差的值进行 MPC
+  // 控制，会导致车辆无法走直线，产生持续的横向误差震荡。
+  // 这个非常有必要了解技术细节，估计这个偏差也可以用来标定传感器跟前进方向的yaw角
   steering_offset_ =
     std::make_shared<SteeringOffsetEstimator>(wheelbase, num, vel_thres, steer_thres, limit);
   return steering_offset_;
@@ -252,6 +290,7 @@ trajectory_follower::LateralOutput MpcLateralController::run(
   // set input data
   setTrajectory(input_data.current_trajectory, input_data.current_odometry);
 
+  // 保存最新的车辆里程计（位置、速度、朝向）和转向角报告。如果启用了自动转向偏移移除，从传感器读取的原始转向角中减去估算的机械零点偏差 
   m_current_kinematic_state = input_data.current_odometry;
   m_current_steering = input_data.current_steering;
   if (enable_auto_steering_offset_removal_) {
@@ -266,12 +305,19 @@ trajectory_follower::LateralOutput MpcLateralController::run(
                                 input_data.current_operation_mode.mode ==
                                   autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS;
 
+  // 如果这是第一次运行，或者刚刚退出自动控制状态，重置 m_ctrl_cmd_prev。
+  // getInitialControlCommand：通常将初始控制命令设为当前的实际转向角，避免上电瞬间方向盘突变。
   if (!m_is_ctrl_cmd_prev_initialized || !is_under_control) {
     m_ctrl_cmd_prev = getInitialControlCommand();
     m_is_ctrl_cmd_prev_initialized = true;
   }
 
   trajectory_follower::LateralHorizon ctrl_cmd_horizon{};
+  // 输入：去偏后的转向角、当前车辆状态。
+  // 输出：
+  // ctrl_cmd：最优控制量。
+  // mpc_solved_status：包含求解是否成功 (result) 和失败原因 (reason)。
+  // ctrl_cmd_horizon：未来一段时间内的控制序列（用于预览或级联控制）。
   const auto mpc_solved_status = m_mpc->calculateMPC(
     m_current_steering, m_current_kinematic_state, ctrl_cmd, predicted_traj, debug_values,
     ctrl_cmd_horizon);
@@ -291,12 +337,15 @@ trajectory_follower::LateralOutput MpcLateralController::run(
   // After the recovery, the previous value of the optimization may deviate greatly from
   // the actual steer angle, and it may make the optimization result unstable.
   if (!mpc_solved_status.result || !is_under_control) {
+    // 原因：MPC 是一种基于历史的优化算法（特别是涉及转向速率限制时）。如果求解失败，之前的优化状态（如上一帧的转向角）可能已经不可信或导致下一次求解约束冲突。重置为当前实际转向角可以“重启”优化器，防止误差累积。
     m_mpc->resetPrevResult(m_current_steering);
   } else {
     setSteeringToHistory(ctrl_cmd);
   }
 
   if (enable_auto_steering_offset_removal_) {
+    // 在线学习：利用当前的车速和原始转向角（注意这里用的是 input_data 中的原始值，因为估计器需要对比“指令”与“实际”的偏差，或者基于运动学反推）来更新偏移量估计值。
+    // 补偿输出：将估算出的偏移量加回到控制命令 ctrl_cmd 中。
     steering_offset_->updateOffset(
       m_current_kinematic_state.twist.twist,
       input_data.current_steering.steering_tire_angle);  // use unbiased steering
@@ -337,6 +386,7 @@ trajectory_follower::LateralOutput MpcLateralController::run(
 
   if (!mpc_solved_status.result) {
     debug_throttle("MPC is not solved, use stop control command");
+    //求解失败，使用上一次控制指令
     ctrl_cmd = getStopControlCommand();
   }
 
@@ -400,6 +450,9 @@ void MpcLateralController::setTrajectory(
   m_mpc->setReferenceTrajectory(msg, m_trajectory_filtering_param, current_kinematics);
 
   // update trajectory buffer to check the trajectory shape change.
+  // 保存了过去 duration_time
+  // 秒内的所有轨迹，如果检测到轨迹形状突变（例如规划模块重新规划了一条完全不同的路径），MPC
+  // 控制器会认为之前的优化状态（如前馈量、历史转向记录）不再可靠，从而触发重置或等待收敛逻辑，防止车辆因跟踪突变的轨迹而产生剧烈抖动。是一个滑动时间窗口管理器，确保只保留最近几秒的轨迹历史，用于后续的轨迹连续性检查。
   m_trajectory_buffer.push_back(m_current_trajectory);
   while (rclcpp::ok()) {
     const auto time_diff = rclcpp::Time(m_trajectory_buffer.back().header.stamp) -

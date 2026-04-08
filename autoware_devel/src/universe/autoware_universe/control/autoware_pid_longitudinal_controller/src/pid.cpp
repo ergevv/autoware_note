@@ -39,27 +39,47 @@ double PIDController::calculate(
     throw std::runtime_error("Trying to calculate uninitialized PID");
   }
 
+  // 比例项P
   const auto & p = m_params;
 
+  // 计算比例项：增益 * 当前误差
   double ret_p = p.kp * error;
+  // 对比例项输出进行限幅（Clamp）。
+  // 防止单个 P 项过大导致系统不稳定或执行器饱和。
   ret_p = std::min(std::max(ret_p, p.min_ret_p), p.max_ret_p);
 
+  // 积分项I
+  // 只有当 enable_integration 为 true 时，才更新积分累积值。
+  // 这用于防止在不需要积分作用时（如车辆静止或刚启动瞬间）产生积分饱和。
+  // 对积分累积值本身进行限幅（Anti-windup）。
+  // 注意：这里限制的是 m_error_integral（误差的积分），而不是最终的 I 输出。
+  // 限制范围是 [min_ret_i / ki, max_ret_i / ki]，这样乘以 ki 后，
+  // ret_i 就会落在 [min_ret_i, max_ret_i] 之间。
   if (enable_integration) {
     m_error_integral += error * dt;
     m_error_integral = std::min(std::max(m_error_integral, p.min_ret_i / p.ki), p.max_ret_i / p.ki);
   }
+  // 计算最终的积分项输出：增益 * 累积误差
   const double ret_i = p.ki * m_error_integral;
 
+  // 微分项 (Derivative, D)
   double error_differential;
+
+  // 处理第一次调用的情况：
+  // 如果是第一次计算，没有“上一次误差”，因此无法计算差分。
+  // 将微分项设为 0，避免除以 dt 产生巨大数值或 NaN。
   if (m_is_first_time) {
     error_differential = 0;
     m_is_first_time = false;
   } else {
+    // 计算误差的变化率：(当前误差 - 上次误差) / 时间步长
     error_differential = (error - m_prev_error) / dt;
   }
+  // 计算微分项输出：增益 * 误差变化率
   double ret_d = p.kd * error_differential;
   ret_d = std::min(std::max(ret_d, p.min_ret_d), p.max_ret_d);
 
+  // 更新“上一次误差”，供下一次计算微分项使用
   m_prev_error = error;
 
   pid_contributions.resize(3);
