@@ -33,14 +33,14 @@ void KinematicsBicycleModel::calculateDiscreteMatrix(
   auto sign = [](double x) { return (x > 0.0) - (x < 0.0); };
 
   /* Linearize delta around delta_r (reference delta) */
-  double delta_r = atan(m_wheelbase * m_curvature);
+  double delta_r = atan(m_wheelbase * m_curvature);  //当前轨迹点对应的车辆航向角
   if (std::abs(delta_r) >= m_steer_lim) {
     delta_r = m_steer_lim * static_cast<double>(sign(delta_r));
   }
-  double cos_delta_r_squared_inv = 1 / (cos(delta_r) * cos(delta_r));
+  double cos_delta_r_squared_inv = 1 / (cos(delta_r) * cos(delta_r)); // tan(delta_r)对delta_r的导数
   double velocity = m_velocity;
   if (std::abs(m_velocity) < 1e-04) {
-    velocity = 1e-04 * (m_velocity >= 0 ? 1 : -1);
+    velocity = 1e-04 * (m_velocity >= 0 ? 1 : -1); //如果速度太接近 0，就强行设成 1e-04
   }
 
   a_d << 0.0, velocity, 0.0, 0.0, 0.0, velocity / m_wheelbase * cos_delta_r_squared_inv, 0.0, 0.0,
