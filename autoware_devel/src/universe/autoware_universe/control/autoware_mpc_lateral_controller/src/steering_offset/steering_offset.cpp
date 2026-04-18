@@ -33,8 +33,8 @@ void SteeringOffsetEstimator::updateOffset(
   const geometry_msgs::msg::Twist & twist, const double steering)
 {
   const bool update_offset =
-    (std::abs(twist.linear.x) > update_vel_threshold_ &&
-     std::abs(steering) < update_steer_threshold_);
+    (std::abs(twist.linear.x) > update_vel_threshold_ && //低速或静止时，转向角传感器的噪声占比大，且车辆可能处于原地打方向状态，此时无法准确反映“直线行驶”的几何关系。
+     std::abs(steering) < update_steer_threshold_); //我们要估算的是零位偏差。只有当车辆大致在走直线时，理论转向角应该为 0。如果车辆在转弯，理论转向角不为 0
 
   if (!update_offset) return;
 
