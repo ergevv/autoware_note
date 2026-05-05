@@ -195,11 +195,22 @@ void EBPathSmoother::resetPreviousData()
   prev_eb_traj_points_ptr_ = nullptr;
 }
 
+/**
+ * @brief 使用弹性带算法平滑轨迹
+ * 
+ * 该函数通过弹性带(Elastic Band)优化算法对输入轨迹进行平滑处理，主要步骤包括：
+ * 裁剪轨迹、插入固定点、重采样、填充边界点、更新QP约束、执行优化以及结果转换。
+ * 
+ * @param traj_points 输入的原始轨迹点序列
+ * @param ego_pose 自车当前位置姿态
+ * @return std::vector<TrajectoryPoint> 平滑后的轨迹点序列，如果优化失败则返回上一次的成功结果
+ */
 std::vector<TrajectoryPoint> EBPathSmoother::smoothTrajectory(
   const std::vector<TrajectoryPoint> & traj_points, const geometry_msgs::msg::Pose & ego_pose)
 {
   time_keeper_ptr_->tic(__func__);
 
+  // 定义获取上一次弹性带轨迹的辅助函数，用于优化失败时的回退
   const auto get_prev_eb_traj_points = [&]() {
     if (prev_eb_traj_points_ptr_) {
       return *prev_eb_traj_points_ptr_;
@@ -208,6 +219,7 @@ std::vector<TrajectoryPoint> EBPathSmoother::smoothTrajectory(
   };
 
   // 1. crop trajectory
+  // 根据自车位置裁剪轨迹，保留前方和后方指定长度的轨迹段
   const double forward_traj_length = eb_param_.num_points * eb_param_.delta_arc_length;
   const double backward_traj_length = common_param_.output_backward_traj_length;
 
@@ -225,6 +237,7 @@ std::vector<TrajectoryPoint> EBPathSmoother::smoothTrajectory(
   const auto traj_points_with_fixed_point = insertFixedPoint(cropped_traj_points);
 
   // 3. resample trajectory with delta_arc_length
+  // 以固定弧长间隔重采样轨迹点，确保优化过程的数值稳定性
   const auto resampled_traj_points = [&]() {
     // NOTE: If the interval of points is not constant, the optimization is sometimes unstable.
     //       Therefore, we do not resample a stop point here.
@@ -239,12 +252,15 @@ std::vector<TrajectoryPoint> EBPathSmoother::smoothTrajectory(
   }();
 
   // 4. pad trajectory points
+  // 在轨迹两端填充额外的点，为弹性带优化提供边界约束
   const auto [padded_traj_points, pad_start_idx] = getPaddedTrajectoryPoints(resampled_traj_points);
 
   // 5. update constraint for elastic band's QP
+  // 根据轨迹点和障碍物信息更新二次规划(QP)问题的约束条件
   updateConstraint(padded_traj_points, is_goal_contained, pad_start_idx);
 
   // 6. get optimization result
+  // 执行弹性带优化算法，求解平滑后的轨迹
   const auto optimized_points = calcSmoothedTrajectory();
   if (!optimized_points) {
     RCLCPP_INFO_EXPRESSION(
@@ -253,6 +269,7 @@ std::vector<TrajectoryPoint> EBPathSmoother::smoothTrajectory(
   }
 
   // 7. convert optimization result to trajectory
+  // 将优化结果转换为轨迹点格式，并验证结果的合理性
   const auto eb_traj_points =
     convertOptimizedPointsToTrajectory(*optimized_points, padded_traj_points, pad_start_idx);
   if (!eb_traj_points) {
@@ -263,6 +280,7 @@ std::vector<TrajectoryPoint> EBPathSmoother::smoothTrajectory(
   prev_eb_traj_points_ptr_ = std::make_shared<std::vector<TrajectoryPoint>>(*eb_traj_points);
 
   // 8. publish eb trajectory
+  // 发布调试用的弹性带轨迹，用于可视化和调试
   const auto eb_traj =
     autoware::motion_utils::convertToTrajectory(*eb_traj_points, createHeader(clock_.now()));
   debug_eb_traj_pub_->publish(eb_traj);
@@ -308,6 +326,20 @@ std::tuple<std::vector<TrajectoryPoint>, size_t> EBPathSmoother::getPaddedTrajec
   return {padded_traj_points, pad_start_idx};
 }
 
+/**
+ * @brief 更新弹性带优化问题的约束条件并配置OSQP求解器
+ * 
+ * 该函数根据输入轨迹点计算二次规划(QP)问题的约束边界，构建目标函数的P矩阵和q向量，
+ * 并初始化或更新OSQP求解器。主要功能包括：
+ * - 根据不同位置点设置不同的约束边界（固定点、连接点、平滑点）
+ * - 构建基于航向角的坐标变换矩阵
+ * - 计算平滑权重和横向误差权重的组合目标函数
+ * - 支持热启动以加速连续优化过程
+ * 
+ * @param traj_points 输入轨迹点序列，用于提取位置和姿态信息
+ * @param is_goal_contained 标识目标点是否包含在轨迹中，影响终点附近的约束设置
+ * @param pad_start_idx 填充起始索引，用于确定需要保持固定的轨迹段范围
+ */
 void EBPathSmoother::updateConstraint(
   const std::vector<TrajectoryPoint> & traj_points, const bool is_goal_contained,
   const int pad_start_idx)
@@ -321,6 +353,8 @@ void EBPathSmoother::updateConstraint(
   const Eigen::MatrixXd A = Eigen::MatrixXd::Identity(p.num_points, p.num_points);
   std::vector<double> upper_bound(p.num_points, 0.0);
   std::vector<double> lower_bound(p.num_points, 0.0);
+  
+  // 根据点的位置类型计算不同的约束边界长度
   for (size_t i = 0; i < static_cast<size_t>(p.num_points); ++i) {
     const double constraint_segment_length = [&]() {
       if (i == 0) {
@@ -350,6 +384,7 @@ void EBPathSmoother::updateConstraint(
     }
   }
 
+  // 构建状态向量x_mat和基于航向角的稀疏变换矩阵sparse_theta_mat
   Eigen::VectorXd x_mat(2 * p.num_points);
   std::vector<Eigen::Triplet<double>> theta_triplet_vec;
   for (size_t i = 0; i < static_cast<size_t>(p.num_points); ++i) {
@@ -363,7 +398,7 @@ void EBPathSmoother::updateConstraint(
   Eigen::SparseMatrix<double> sparse_theta_mat(p.num_points, 2 * p.num_points);
   sparse_theta_mat.setFromTriplets(theta_triplet_vec.begin(), theta_triplet_vec.end());
 
-  // calculate P
+  // 计算QP问题的目标函数矩阵P，结合平滑权重和横向误差权重
   const Eigen::SparseMatrix<double> raw_P_for_smooth = p.smooth_weight * makePMatrix(p.num_points);
   const Eigen::MatrixXd theta_P_mat = sparse_theta_mat * raw_P_for_smooth;
   const Eigen::MatrixXd P_for_smooth = theta_P_mat * sparse_theta_mat.transpose();
@@ -371,10 +406,11 @@ void EBPathSmoother::updateConstraint(
     p.lat_error_weight * Eigen::MatrixXd::Identity(p.num_points, p.num_points);
   const Eigen::MatrixXd P = P_for_smooth + P_for_lat_error;
 
-  // calculate q
+  // 计算QP问题的线性项向量q
   const Eigen::VectorXd raw_q_for_smooth = theta_P_mat * x_mat;
   const auto q = toStdVector(raw_q_for_smooth);
 
+  // 根据热启动配置选择更新现有求解器或创建新求解器
   if (p.enable_warm_start && osqp_solver_ptr_) {
     osqp_solver_ptr_->updateP(P);
     osqp_solver_ptr_->updateQ(q);

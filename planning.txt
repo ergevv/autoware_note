@@ -66,7 +66,7 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launc
 
 autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/lane_driving/motion_planning/motion_planning.launch.xml
 *10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp（待学）
-实现了基于弹性带（Elastic Band）算法的路径平滑器 ROS 2 节点组件。其主要功能是对规划路径进行平滑优化，生成可执行的平滑轨迹。
+实现了基于弹性带（Elastic Band）算法的路径平滑器 ROS 2 节点组件。其主要功能是对规划路径进行横向的平滑优化，生成可执行的平滑轨迹。
 
 对比项	PathOptimizer (node.cpp)	ElasticBandSmoother
 算法类型	MPT (Model Predictive Trajectory)	Elastic Band (弹性带)
@@ -90,6 +90,9 @@ PathSampler (生成候选) → PathOptimizer (安全优化) → ElasticBandSmoot
 规划器统一输出 Path 格式，这里将 Path 消息转换为 Trajectory 消息，不做任何算法处理
 
 *14、autoware_devel/src/core/autoware_core/planning/motion_velocity_planner/autoware_motion_velocity_planner/src/node.cpp
+这个速度规划器不是从零生成路径，而是在上游轨迹上，根据地图、自车状态、预测障碍物、点云/栅格等信息，求出必须停车、慢行或限速的位置，再把这些约束写回轨迹速度。
+autoware_devel/src/core/autoware_core/planning/autoware_velocity_smoother/src/smoother/analytical_jerk_constrained_smoother/analytical_jerk_constrained_smoother.cpp bool AnalyticalJerkConstrainedSmoother::apply未看
+
 速度平滑：使用 Jerk 约束平滑器优化速度曲线
 轨迹重采样：移除过密的轨迹点提高计算效率
 多源感知融合：整合点云、栅格、预测障碍物进行速度决策

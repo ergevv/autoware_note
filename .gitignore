@@ -7,3 +7,5 @@ show.md
 Lanelet2/*
 autoware_data/*
 core.*
+docker/*
+autoware_universe_docker.tar

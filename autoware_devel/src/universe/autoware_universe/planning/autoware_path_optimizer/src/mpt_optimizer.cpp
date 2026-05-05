@@ -473,6 +473,30 @@ void MPTOptimizer::onParam(const std::vector<rclcpp::Parameter> & parameters)
   updateVehicleCircles();
   debug_data_ptr_->mpt_visualize_sampling_num = mpt_param_.mpt_visualize_sampling_num;
 }
+/**
+ * @brief 使用模型预测控制(MPT)优化轨迹
+ * 
+ * 该函数基于参考点和规划数据,通过求解二次规划(QP)问题来优化车辆的转向角,
+ * 生成平滑且安全的轨迹。优化过程考虑了车辆运动学约束、碰撞避免和轨迹平滑性。
+ * 
+ * 优化流程:
+ * 1. 计算参考点序列
+ * 2. 构建状态方程矩阵 (B, W)
+ * 3. 计算代价函数权重矩阵 (Q, R)
+ * 4. 构建目标函数矩阵
+ * 5. 构建约束条件矩阵
+ * 6. 求解QP问题得到最优转向角
+ * 7. 将优化结果转换为轨迹点并进行验证
+ * 8. 发布调试轨迹并更新内部状态
+ * 
+ * @param planner_data 规划器数据,包含轨迹点、车辆状态、环境信息等
+ * @return std::optional<std::vector<TrajectoryPoint>> 优化后的轨迹点序列
+ *         - 成功时返回优化后的轨迹点向量
+ *         - 失败时返回std::nullopt,可能原因包括:
+ *           * 参考点数量不足(< 2)
+ *           * QP问题求解失败
+ *           * 横向或航向误差过大导致验证失败
+ */
 std::optional<std::vector<TrajectoryPoint>> MPTOptimizer::optimizeTrajectory(
   const PlannerData & planner_data)
 {
@@ -481,7 +505,7 @@ std::optional<std::vector<TrajectoryPoint>> MPTOptimizer::optimizeTrajectory(
   const auto & p = planner_data;
   const auto & traj_points = p.traj_points;
 
-  // 1. calculate reference points
+  // 计算参考点序列,作为优化的基准路径
   auto ref_points = calcReferencePoints(planner_data, traj_points);
   if (ref_points.size() < 2) {
     RCLCPP_INFO_EXPRESSION(
@@ -489,19 +513,21 @@ std::optional<std::vector<TrajectoryPoint>> MPTOptimizer::optimizeTrajectory(
     return std::nullopt;
   }
 
-  // 2. calculate B and W matrices where x = B u + W
+  // 构建状态方程矩阵 B 和 W,其中状态变量 x = B*u + W
+  // u 为控制输入(转向角),该方程描述系统状态随控制输入的变化关系
   const auto mpt_mat = state_equation_generator_.calcMatrix(ref_points);
 
-  // 3. calculate Q and R matrices where J(x, u) = x^t Q x + u^t R u
+  // 计算代价函数的权重矩阵 Q 和 R
+  // 目标函数 J(x,u) = x^T*Q*x + u^T*R*u,用于平衡跟踪精度和控制平滑性
   const auto val_mat = calcValueMatrix(ref_points, traj_points);
 
-  // 4. get objective matrix
+  // 根据状态方程矩阵和权重矩阵构建最终的目标函数矩阵
   const auto obj_mat = calcObjectiveMatrix(mpt_mat, val_mat, ref_points);
 
-  // 5. get constraints matrix
+  // 构建约束条件矩阵,包括车辆运动学约束、碰撞避免约束等
   const auto const_mat = calcConstraintMatrix(mpt_mat, ref_points);
 
-  // 6. optimize steer angles
+  // 求解二次规划问题,得到最优的转向角序列
   const auto optimized_variables = calcOptimizedSteerAngles(ref_points, obj_mat, const_mat);
   if (!optimized_variables) {
     RCLCPP_WARN(logger_, "return std::nullopt since could not solve qp");
@@ -509,14 +535,14 @@ std::optional<std::vector<TrajectoryPoint>> MPTOptimizer::optimizeTrajectory(
     return std::nullopt;
   }
 
-  // 7. convert to points with validation
+  // 将优化得到的控制变量转换为轨迹点,并验证横向误差和航向误差是否在允许范围内
   auto mpt_traj_points = calcMPTPoints(ref_points, *optimized_variables, mpt_mat);
   if (!mpt_traj_points) {
     RCLCPP_WARN(logger_, "return std::nullopt since lateral or yaw error is too large.");
     return std::nullopt;
   }
 
-  // 8. publish trajectories for debug
+  // 发布调试用的轨迹信息,用于可视化和调试
   publishDebugTrajectories(p.header, ref_points, *mpt_traj_points);
 
   debug_data_ptr_->ref_points = ref_points;
@@ -535,6 +561,28 @@ std::optional<std::vector<TrajectoryPoint>> MPTOptimizer::getPrevOptimizedTrajec
   return std::nullopt;
 }
 
+/**
+ * @brief 计算参考点序列，用于MPT（Model Predictive Trajectory）优化器
+ * 
+ * 该函数基于平滑后的轨迹点和规划数据，生成一系列参考点。这些参考点包含了位置、方向、曲率、
+ * 边界等完整信息，作为后续路径优化的基础。处理流程包括重采样、裁剪、插值、以及各类属性的计算。
+ * 
+ * 主要处理步骤：
+ * 1. 对平滑轨迹点进行重采样并转换为ReferencePoint类型
+ * 2. 前后向裁剪轨迹并添加余量，进行样条插值
+ * 3. 计算每个参考点的方向和曲率
+ * 4. 后向裁剪到指定长度
+ * 5. 更新固定点并重新采样
+ * 6. 更新道路边界和车辆边界信息
+ * 7. 更新弧长间隔
+ * 8. 更新额外信息（alpha和beta参数）
+ * 9. 前向裁剪到目标点数
+ * 
+ * @param planner_data 规划器数据，包含自车位姿、速度、左右边界等关键信息
+ * @param smoothed_points 经过平滑处理的轨迹点序列，作为参考路径的输入
+ * 
+ * @return std::vector<ReferencePoint> 计算完成的参考点序列，包含完整的几何和约束信息
+ */
 std::vector<ReferencePoint> MPTOptimizer::calcReferencePoints(
   const PlannerData & planner_data, const std::vector<TrajectoryPoint> & smoothed_points) const
 {
@@ -560,14 +608,14 @@ std::vector<ReferencePoint> MPTOptimizer::calcReferencePoints(
   //       Start point may change. Spline calculation is required.
   constexpr double tmp_margin = 10.0;
   size_t ego_seg_idx =
-    trajectory_utils::findEgoSegmentIndex(ref_points, p.ego_pose, ego_nearest_param_);
+    trajectory_utils::findEgoSegmentIndex(ref_points, p.ego_pose, ego_nearest_param_); //找到自车（ego vehicle）当前所在的轨迹段索引。通过自车位姿 p.ego_pose 在参考点序列中定位最近的路径段。
   ref_points = autoware::motion_utils::cropPoints(
     ref_points, p.ego_pose.position, ego_seg_idx, forward_traj_length + tmp_margin,
-    backward_traj_length + tmp_margin);
+    backward_traj_length + tmp_margin);  //以自车位置为中心，向前裁剪 forward_traj_length + 10米，向后裁剪 backward_traj_length + 10米 的参考点。这里添加了10米余量，确保后续计算的准确性。
 
   // remove repeated points
-  ref_points = trajectory_utils::sanitizePoints(ref_points);
-  autoware::interpolation::SplineInterpolationPoints2d ref_points_spline(ref_points);
+  ref_points = trajectory_utils::sanitizePoints(ref_points); //清理参考点序列，移除重复的点，保证数据质量。
+  autoware::interpolation::SplineInterpolationPoints2d ref_points_spline(ref_points); //创建二维样条插值对象
   ego_seg_idx = trajectory_utils::findEgoSegmentIndex(ref_points, p.ego_pose, ego_nearest_param_);
 
   // 3. calculate orientation and curvature
@@ -576,6 +624,7 @@ std::vector<ReferencePoint> MPTOptimizer::calcReferencePoints(
 
   // 4. crop backward
   // NOTE: Start point may change. Spline calculation is required.
+  // 再次裁剪参考点，这次只保留向后的 backward_traj_length（不再加余量），但向前仍然保留 forward_traj_length + 10米。这是因为前向需要更多点用于优化，而后向只需要固定长度。
   ref_points = autoware::motion_utils::cropPoints(
     ref_points, p.ego_pose.position, ego_seg_idx, forward_traj_length + tmp_margin,
     backward_traj_length);
@@ -601,7 +650,7 @@ std::vector<ReferencePoint> MPTOptimizer::calcReferencePoints(
   // NOTE: This must be after calculation of bounds and delta arc length
   updateExtraPoints(ref_points);
 
-  // 9. crop forward
+  // 9. crop forward to target number of points
   // ref_points = autoware::motion_utils::cropForwardPoints(
   //   ref_points, p.ego_pose.position, ego_seg_idx, forward_traj_length);
   if (static_cast<size_t>(mpt_param_.num_points) < ref_points.size()) {
@@ -631,6 +680,7 @@ void MPTOptimizer::updateCurvature(
   }
 }
 
+// 固定点是指在当前帧优化过程中，其位姿（位置+方向）和运动学状态被锁定为上一帧优化结果的点，不会因当前帧的优化而改变。这样可以保证轨迹的时间连续性，避免抖动。通过固定前一帧的部分轨迹点，确保当前帧优化的轨迹与历史轨迹平滑衔接，提高轨迹的稳定性和可执行性。
 void MPTOptimizer::updateFixedPoint(std::vector<ReferencePoint> & ref_points) const
 {
   autoware_utils::ScopedTimeTrack st(__func__, *time_keeper_);
@@ -642,7 +692,7 @@ void MPTOptimizer::updateFixedPoint(std::vector<ReferencePoint> & ref_points) co
 
   // replace the front pose and curvature with previous reference points
   const auto idx = trajectory_utils::updateFrontPointForFix(
-    ref_points, *prev_ref_points_ptr_, mpt_param_.delta_arc_length, ego_nearest_param_);
+    ref_points, *prev_ref_points_ptr_, mpt_param_.delta_arc_length, ego_nearest_param_); //将当前参考点序列的前部位姿和曲率替换为上一帧参考点中对应的值。这部分为固定点
 
   // NOTE: memorize front point to be fixed before resampling
   const auto front_point = ref_points.front();
@@ -677,6 +727,14 @@ void MPTOptimizer::updateFixedPoint(std::vector<ReferencePoint> & ref_points) co
   }
 }
 
+/**
+ * @brief 更新参考点的弧长间隔
+ * 
+ * 该函数计算每个参考点到下一个参考点的距离，并将其存储为delta_arc_length。
+ * 最后一个参考点的delta_arc_length设置为0.0，因为它后面没有下一个点。
+ * 
+ * @param ref_points 参考点序列的引用，函数会直接修改其中每个点的delta_arc_length字段
+ */
 void MPTOptimizer::updateDeltaArcLength(std::vector<ReferencePoint> & ref_points) const
 {
   for (size_t i = 0; i < ref_points.size(); i++) {
@@ -687,11 +745,25 @@ void MPTOptimizer::updateDeltaArcLength(std::vector<ReferencePoint> & ref_points
   }
 }
 
+/**
+ * @brief 更新参考点的额外信息，包括前轮角度和避障成本
+ * 
+ * 该函数主要完成以下任务：
+ * 1. 计算每个参考点的前轮角度(alpha)，即前轮方向与车辆朝向的夹角
+ * 2. 计算并传播避障成本，包括：
+ *    - 基于障碍物检测计算归一化避障成本
+ *    - 沿纵向传播避障成本形成避障带
+ *    - 对避障成本进行扩散处理，使成本在邻域内平滑衰减
+ *    - 继承上一帧的避障成本以保证时序连续性
+ * 
+ * @param ref_points 参考点序列的引用，函数会直接修改其中的alpha和normalized_avoidance_cost字段
+ */
 void MPTOptimizer::updateExtraPoints(std::vector<ReferencePoint> & ref_points) const
 {
   autoware_utils::ScopedTimeTrack st(__func__, *time_keeper_);
 
-  // alpha
+  // 计算每个参考点的前轮角度(alpha)，alpha当前参考点的 yaw 和 从当前参考点指向“前方约一个轴距处参考点”的连线方向之间的夹角，：MPT 不只想让参考点本身横向误差小，还想让车辆前方某个优化中心的横向误差小。alpha 就是在弯道里修正“当前点到前方优化中心”这一段几何关系的角度。
+
   for (size_t i = 0; i < ref_points.size(); ++i) {
     const auto front_wheel_pos =
       trajectory_utils::getNearestPosition(ref_points, i, vehicle_info_.wheel_base_m);
@@ -706,11 +778,11 @@ void MPTOptimizer::updateExtraPoints(std::vector<ReferencePoint> & ref_points) c
       autoware_utils::normalize_radian(front_wheel_yaw - ref_points.at(i).getYaw());
   }
 
-  {  // avoidance
-    // calculate one-step avoidance const
+  {  // 避障成本计算与传播
+    // 计算单步避障成本并沿纵向传播形成避障带
     for (size_t i = 0; i < ref_points.size(); ++i) {
       const auto normalized_avoidance_cost = calcNormalizedAvoidanceCost(ref_points.at(i));
-      if (normalized_avoidance_cost) {
+      if (normalized_avoidance_cost) { //当检测到某个位置有障碍物时，不仅在该点设置避障成本，还在其前后一定范围内都设置相同的成本，形成一个"避障带"。
         const int max_length_idx =
           std::floor(mpt_param_.avoidance_cost_band_length / mpt_param_.delta_arc_length);
         for (int j = -max_length_idx; j <= max_length_idx; ++j) {
@@ -738,7 +810,7 @@ void MPTOptimizer::updateExtraPoints(std::vector<ReferencePoint> & ref_points) c
     }
     */
 
-    // update spread avoidance cost
+    // 对避障成本进行扩散处理，使成本在邻域内按衰减率平滑过渡
     for (int i = 0; i < static_cast<int>(ref_points.size()); ++i) {
       const double base_normalized_avoidance_cost = ref_points.at(i).normalized_avoidance_cost;
       if (0 < base_normalized_avoidance_cost) {
@@ -758,7 +830,7 @@ void MPTOptimizer::updateExtraPoints(std::vector<ReferencePoint> & ref_points) c
       }
     }
 
-    // take over previous avoidance cost
+    // 继承上一帧的避障成本，保证时序连续性和稳定性,将上一帧的成本与当前帧的成本比较，取较大者这样可以保持避障成本的持续性，避免障碍物检测的抖动
     const double max_dist_threshold = mpt_param_.delta_arc_length / 2.0;
     if (prev_ref_points_ptr_ && !prev_ref_points_ptr_->empty()) {
       for (int i = 0; i < static_cast<int>(ref_points.size()); ++i) {
@@ -779,9 +851,13 @@ void MPTOptimizer::updateExtraPoints(std::vector<ReferencePoint> & ref_points) c
   }
 }
 
+// ✅ 边界不是固定值
+// ✅ left_bound 和 right_bound 是点序列（不是单个数值）
+// ✅ 对每个参考点，都根据其位置动态计算边界距离
+// ✅ 最终每个参考点的 bounds 字段都包含不同的左右边界距离
 void MPTOptimizer::updateBounds(
   std::vector<ReferencePoint> & ref_points,
-  const std::vector<geometry_msgs::msg::Point> & left_bound,
+  const std::vector<geometry_msgs::msg::Point> & left_bound,  // 这个边界是多个点了，每个点都有
   const std::vector<geometry_msgs::msg::Point> & right_bound,
   const geometry_msgs::msg::Pose & ego_pose, const double ego_vel) const
 {
@@ -1086,6 +1162,19 @@ void MPTOptimizer::avoidSuddenSteering(
   }
 }
 
+/**
+ * @brief 更新参考点上的车辆边界约束信息
+ * 
+ * 该函数遍历所有参考点，为每个参考点计算多个纵向偏移位置处的车辆边界约束。
+ * 主要完成以下工作：
+ * 1. 清除之前的边界约束和beta值
+ * 2. 对每个纵向偏移位置，计算碰撞检测位姿和航向角偏差(beta)
+ * 3. 计算车辆边界位姿（考虑横向偏移）
+ * 4. 通过线性插值计算该位置的边界约束
+ * 
+ * @param ref_points 参考点向量，用于存储计算后的边界约束信息
+ * @param ref_points_spline 参考点的样条插值对象，用于获取任意位置的位姿和弧长信息
+ */
 void MPTOptimizer::updateVehicleBounds(
   std::vector<ReferencePoint> & ref_points,
   const autoware::interpolation::SplineInterpolationPoints2d & ref_points_spline) const
@@ -1099,33 +1188,38 @@ void MPTOptimizer::updateVehicleBounds(
     ref_points.at(p_idx).bounds_on_constraints.clear();
     ref_points.at(p_idx).beta.clear();
 
-    for (const double lon_offset : vehicle_circle_longitudinal_offsets_) {
+    for (const double lon_offset : vehicle_circle_longitudinal_offsets_) {   //vehicle_circle_longitudinal_offsets_表示
+      // 从参考点开始
+      // 沿着样条曲线前进 lon_offset 的弧长距离
+      // 在该位置通过样条插值得到精确的位姿（位置和航向角）
+      // 用这个位姿进行碰撞检测
       const auto collision_check_pose =
-        ref_points_spline.getSplineInterpolatedPose(p_idx, lon_offset);
+        ref_points_spline.getSplineInterpolatedPose(p_idx, lon_offset);  //使用样条插值获取在偏移位置 lon_offset 处的精确位姿。
       const double collision_check_yaw = tf2::getYaw(collision_check_pose.orientation);
 
       // calculate beta
-      const double beta = ref_point.getYaw() - collision_check_yaw;
+      const double beta = ref_point.getYaw() - collision_check_yaw;  //参考点的航向角与车辆圆形位置的航向角之间的差值。车头和车尾的朝向与路径切线方向存在偏差
+
       ref_points.at(p_idx).beta.push_back(beta);
 
       // calculate vehicle_bounds_pose
       const double tmp_yaw = std::atan2(
         collision_check_pose.position.y - ref_point.pose.position.y,
-        collision_check_pose.position.x - ref_point.pose.position.x);
+        collision_check_pose.position.x - ref_point.pose.position.x); //计算从参考点到碰撞检查点的连线方向角。
       const double offset_y = -autoware_utils::calc_distance2d(ref_point, collision_check_pose) *
-                              std::sin(tmp_yaw - collision_check_yaw);
+                              std::sin(tmp_yaw - collision_check_yaw);  //计算车辆圆形相对于参考路径的横向偏移。
 
       const auto vehicle_bounds_pose =
-        autoware_utils::calc_offset_pose(collision_check_pose, 0.0, offset_y, 0.0);
+        autoware_utils::calc_offset_pose(collision_check_pose, 0.0, offset_y, 0.0); //基于碰撞检查位姿，向横向偏移 offset_y
 
       // interpolate bounds
       const auto bounds = [&]() {
-        const double collision_check_s = ref_points_spline.getAccumulatedLength(p_idx) + lon_offset;
-        const size_t collision_check_idx = ref_points_spline.getOffsetIndex(p_idx, lon_offset);
+        const double collision_check_s = ref_points_spline.getAccumulatedLength(p_idx) + lon_offset;  //ref_points_spline.getAccumulatedLength(p_idx)：获取第 p_idx 个参考点在样条曲线上的累积弧长（从路径起点到该点的距离）。得到车辆圆形在整条路径上的绝对位置（以弧长表示）。
+        const size_t collision_check_idx = ref_points_spline.getOffsetIndex(p_idx, lon_offset); //在偏移位置 lon_offset 处最接近的参考点索引。
 
         const size_t prev_idx = std::clamp(
           collision_check_idx - 1, static_cast<size_t>(0),
-          static_cast<size_t>(ref_points_spline.getSize() - 2));
+          static_cast<size_t>(ref_points_spline.getSize() - 2));  //找到碰撞检查点前后两个参考点的索引，用于线性插值。
         const size_t next_idx = prev_idx + 1;
 
         const auto & prev_bounds = ref_points.at(prev_idx).bounds;
@@ -1134,11 +1228,24 @@ void MPTOptimizer::updateVehicleBounds(
         const double prev_s = ref_points_spline.getAccumulatedLength(prev_idx);
         const double next_s = ref_points_spline.getAccumulatedLength(next_idx);
 
-        const double ratio = std::clamp((collision_check_s - prev_s) / (next_s - prev_s), 0.0, 1.0);
+        const double ratio = std::clamp((collision_check_s - prev_s) / (next_s - prev_s), 0.0, 1.0);  //插值碰撞点的比例
 
-        auto bounds = Bounds::lerp(prev_bounds, next_bounds, ratio);
-        bounds.translate(offset_y);
+        // lower_bound: 优化变量的下界（允许的最小横向偏移）
+        // upper_bound: 优化变量的上界（允许的最大横向偏移）
+        auto bounds = Bounds::lerp(prev_bounds, next_bounds, ratio); // 根据比例，插值计算当前边界大上下限
+        bounds.translate(offset_y);  //当车辆圆形不在路径中心线上，而是偏移了 offset 时，需要调整优化变量的约束范围。
         return bounds;
+        // 原始约束（相对于路径中心线）：
+        //   lower_bound = -2.0  （允许向右最多2米）
+        //   upper_bound = +3.0  （允许向左最多3米）
+
+        // 车辆圆形已经在右侧0.5米处，所以：
+        //   实际可用的向右空间 = 2.0 - 0.5 = 1.5米
+        //   实际可用的向左空间 = 3.0 + 0.5 = 3.5米
+
+        // translate(-0.5)：
+        //   lower_bound = -2.0 - (-0.5) = -1.5  ✓ 向右可用空间减少
+        //   upper_bound = +3.0 - (-0.5) = +3.5  ✓ 向左可用空间增加
       }();
 
       ref_points.at(p_idx).bounds_on_constraints.push_back(bounds);
@@ -1148,6 +1255,25 @@ void MPTOptimizer::updateVehicleBounds(
 }
 
 // cost function: J = x' Q x + u' R u
+/**
+ * @brief 计算MPT优化器的价值矩阵(Q矩阵和R矩阵)
+ * 
+ * 该函数根据参考点和轨迹点计算二次规划问题中的权重矩阵：
+ * - Q矩阵: 状态误差权重矩阵，包含横向位置误差和航向角误差的权重
+ * - R矩阵: 控制输入权重矩阵，包含转向角输入的权重
+ * 
+ * 权重会根据以下情况自适应调整：
+ * 1. 终端点：如果目标点被包含在参考点中，使用goal权重；否则使用terminal权重
+ * 2. 避障区域：根据归一化避障成本线性插值调整权重
+ * 3. 正常区域：使用默认权重参数
+ * 
+ * @param ref_points 参考点序列，包含位置、方向、边界信息和避障成本等
+ * @param traj_points 轨迹点序列，用于判断目标点是否被包含
+ * 
+ * @return ValueMatrix 包含Q矩阵和R矩阵的结构体
+ *         - Q: N_x × N_x 稀疏矩阵，N_x = N_ref × D_x
+ *         - R: N_u × N_u 稀疏矩阵，N_u = (N_ref - 1) × D_u
+ */
 MPTOptimizer::ValueMatrix MPTOptimizer::calcValueMatrix(
   const std::vector<ReferencePoint> & ref_points,
   const std::vector<TrajectoryPoint> & traj_points) const
@@ -1161,11 +1287,13 @@ MPTOptimizer::ValueMatrix MPTOptimizer::calcValueMatrix(
   const size_t N_x = N_ref * D_x;
   const size_t N_u = (N_ref - 1) * D_u;
 
+  // 判断目标点是否包含在参考点中
   const bool is_goal_contained = geometry_utils::isSamePoint(ref_points.back(), traj_points.back());
 
-  // update Q
+  // 构建Q矩阵的三元组列表，包含横向误差权重和航向角误差权重
   std::vector<Eigen::Triplet<double>> Q_triplet_vec;
   for (size_t i = 0; i < N_ref; ++i) {
+    // 根据参考点类型自适应计算误差权重
     const auto adaptive_error_weight = [&]() -> std::array<double, 2> {
       // for terminal point
       if (i == N_ref - 1) {
@@ -1198,9 +1326,10 @@ MPTOptimizer::ValueMatrix MPTOptimizer::calcValueMatrix(
   Eigen::SparseMatrix<double> Q_sparse_mat(N_x, N_x);
   Q_sparse_mat.setFromTriplets(Q_triplet_vec.begin(), Q_triplet_vec.end());
 
-  // update R
+  // 构建R矩阵的三元组列表，包含转向角输入权重
   std::vector<Eigen::Triplet<double>> R_triplet_vec;
   for (size_t i = 0; i < N_ref - 1; ++i) {
+    // 根据避障成本自适应调整转向权重
     const double adaptive_steer_weight = autoware::interpolation::lerp(
       mpt_param_.steer_input_weight, mpt_param_.avoidance_steer_input_weight,
       ref_points.at(i).normalized_avoidance_cost);
@@ -1214,6 +1343,21 @@ MPTOptimizer::ValueMatrix MPTOptimizer::calcValueMatrix(
   return ValueMatrix{Q_sparse_mat, R_sparse_mat};
 }
 
+/**
+ * @brief 计算MPT优化器的目标矩阵（Hessian矩阵和梯度向量）
+ * 
+ * 该函数构建二次规划问题的目标函数 min J(v) = v'Hv + v'g，其中：
+ * - H 是Hessian矩阵，包含状态偏差和控制输入的权重
+ * - g 是梯度向量，包含偏移量和松弛变量的惩罚项
+ * 
+ * 通过坐标变换矩阵T将优化中心偏移到参考路径的侧向位置，
+ * 使得优化问题在局部坐标系中求解，提高数值稳定性。
+ * 
+ * @param mpt_mat 状态方程生成器的矩阵（当前未使用，保留用于未来扩展）
+ * @param val_mat 价值矩阵，包含状态权重矩阵Q和控制权重矩阵R
+ * @param ref_points 参考点序列，包含每个离散点的位姿、速度、曲率等信息
+ * @return ObjectiveMatrix 包含Hessian矩阵和梯度向量的目标矩阵结构体
+ */
 MPTOptimizer::ObjectiveMatrix MPTOptimizer::calcObjectiveMatrix(
   [[maybe_unused]] const StateEquationGenerator::Matrix & mpt_mat, const ValueMatrix & val_mat,
   const std::vector<ReferencePoint> & ref_points) const
@@ -1232,9 +1376,8 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::calcObjectiveMatrix(
 
   const size_t N_v = N_x + N_u + N_s;
 
-  // generate T matrix and vector to shift optimization center
-  // NOTE: Z is defined as time-series vector of shifted deviation
-  //       error where Z = sparse_T_mat * X + T_vec
+  // 构建坐标变换矩阵T和偏移向量，将优化中心从全局坐标系转换到参考路径的局部坐标系
+  // Z = sparse_T_mat * X + T_vec，其中Z是平移后的偏差误差时间序列向量
   std::vector<Eigen::Triplet<double>> triplet_T_vec;
   Eigen::VectorXd T_vec = Eigen::VectorXd::Zero(N_x);
   const double offset = mpt_param_.optimization_center_offset;
@@ -1250,16 +1393,18 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::calcObjectiveMatrix(
   Eigen::SparseMatrix<double> sparse_T_mat(N_x, N_x);
   sparse_T_mat.setFromTriplets(triplet_T_vec.begin(), triplet_T_vec.end());
 
-  // NOTE: min J(v) = min (v'Hv + v'g)
+  // 计算状态变量的Hessian子矩阵H_x = T'QT，利用对称性分别填充上三角和下三角部分
   Eigen::MatrixXd H_x = Eigen::MatrixXd::Zero(N_x, N_x);
   H_x.triangularView<Eigen::Upper>() =
     Eigen::MatrixXd(sparse_T_mat.transpose() * val_mat.Q * sparse_T_mat);
   H_x.triangularView<Eigen::Lower>() = H_x.transpose();
 
+  // 组装完整的Hessian矩阵H，包含状态变量和控制输入两个块对角矩阵
   Eigen::MatrixXd H = Eigen::MatrixXd::Zero(N_v, N_v);
   H.block(0, 0, N_x, N_x) = H_x;
   H.block(N_x, N_x, N_u, N_u) = val_mat.R;
 
+  // 计算梯度向量g，包含状态偏移项和松弛变量的软约束惩罚项
   Eigen::VectorXd g = Eigen::VectorXd::Zero(N_v);
   g.segment(0, N_x) = T_vec.transpose() * val_mat.Q * sparse_T_mat;
   g.segment(N_x + N_u, N_s) = mpt_param_.soft_collision_free_weight * Eigen::VectorXd::Ones(N_s);
@@ -1274,6 +1419,30 @@ MPTOptimizer::ObjectiveMatrix MPTOptimizer::calcObjectiveMatrix(
 // Constraint: lb <= A u <= ub
 // decision variable
 // u := [initial state, steer angles, soft variables]
+/**
+ * @brief 计算MPT(Model Predictive Trajectory)优化器的约束矩阵
+ * 
+ * 该函数构建QP(二次规划)问题的线性约束矩阵A及其上下界lb、ub。
+ * 约束包括:状态方程约束、碰撞避免约束、固定点约束和转向角限制约束。
+ * 
+ * @param mpt_mat 状态方程生成器计算的矩阵,包含A、B、W矩阵,用于描述系统动力学
+ * @param ref_points 参考点序列,包含轨迹上的位姿、曲率、边界等信息
+ * @return ConstraintMatrix 包含线性约束矩阵A、下界lb、上界ub的结构体
+ * 
+ * 约束矩阵的结构:
+ * - 状态变量维度: N_x = N_ref * D_x (参考点数 × 状态维度)
+ * - 控制变量维度: N_u = (N_ref-1) * D_u ((参考点数-1) × 控制维度)
+ * - Slack变量维度: N_ref * N_slack (仅在软约束时存在)
+ * - 总变量数: N_v = N_x + N_u + slack变量数
+ * 
+ * 约束类型及行数:
+ * 1. 状态方程约束: N_x行
+ * 2. 碰撞避免约束: 
+ *    - 软约束: 3 * N_ref * N_collision_check行 (上界、下界、非负约束)
+ *    - 硬约束: N_ref * N_collision_check行
+ * 3. 固定点约束: fixed_points数量 * D_x行
+ * 4. 转向角限制约束: N_u行 (如果启用)
+ */
 MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
   const StateEquationGenerator::Matrix & mpt_mat,
   const std::vector<ReferencePoint> & ref_points) const
@@ -1325,15 +1494,43 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
   Eigen::VectorXd ub = Eigen::VectorXd::Constant(A_rows, autoware::osqp_interface::INF);
   size_t A_rows_end = 0;
 
-  // 1. State equation
+  /**
+   * 1. 构建状态方程约束
+   * 
+   * 状态方程形式: X_{k+1} = A*X_k + B*u_k + W
+   * 转换为等式约束: X_{k+1} - A*X_k - B*u_k = W
+   * 矩阵形式: [I - A | -B] * [X; u] = W
+   * 
+   * 其中:
+   * - I为单位矩阵,维度N_x × N_x
+   * - A为状态转移矩阵,维度N_x × N_x
+   * - B为控制输入矩阵,维度N_x × N_u
+   * - W为常数项,维度N_x
+   */
   A.block(0, 0, N_x, N_x) = Eigen::MatrixXd::Identity(N_x, N_x) - mpt_mat.A;
   A.block(0, N_x, N_x, N_u) = -mpt_mat.B;
   lb.segment(0, N_x) = mpt_mat.W;
   ub.segment(0, N_x) = mpt_mat.W;
   A_rows_end += N_x;
 
-  // 2. collision free
-  // CX = C(Bv + w) + C \in R^{N_ref, N_ref * D_x}
+  /**
+   * 2. 构建碰撞避免约束
+   * 
+   * 使用多个圆形包围盒近似车辆形状,对每个圆形检查与道路边界的碰撞。
+   * 对于第l个圆形,约束形式为:
+   * C * X <= upper_bound 且 C * X >= lower_bound
+   * 
+   * 其中C矩阵提取横向位置和航向角信息:
+   * C = [cos(beta), l*cos(beta)] 对应于[lat, yaw]
+   * 
+   * 软约束引入slack变量s,将硬约束转化为:
+   * lower_bound - C_vec <= C*X + s
+   * C*X + s <= upper_bound - C_vec  
+   * s >= 0
+   * 
+   * 硬约束直接施加:
+   * lower_bound - C_vec <= C*X <= upper_bound - C_vec
+   */
   for (size_t l_idx = 0; l_idx < N_collision_check; ++l_idx) {
     // create C := [cos(beta) | l cos(beta)]
     Eigen::SparseMatrix<double> C_sparse_mat(N_ref, N_x);
@@ -1342,9 +1539,9 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
 
     // calculate C mat and vec
     for (size_t i = 0; i < N_ref; ++i) {
-      const double beta = ref_points.at(i).beta.at(l_idx);
+      const double beta = ref_points.at(i).beta.at(l_idx); //  //参考点的航向角与车辆圆形位置的航向角之间的差值。可以理解为车头和车尾的朝向与路径切线方向存在偏差，或者说是使用轨迹来推测圆形点相对于车身的角度
       const double lon_offset = vehicle_circle_longitudinal_offsets_.at(l_idx);
-
+      // 参考车身位置的横向偏移
       C_triplet_vec.push_back(Eigen::Triplet<double>(i, i * D_x, 1.0 * std::cos(beta)));
       C_triplet_vec.push_back(Eigen::Triplet<double>(i, i * D_x + 1, lon_offset * std::cos(beta)));
       C_vec(i) = lon_offset * std::sin(beta);
@@ -1352,11 +1549,24 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
     C_sparse_mat.setFromTriplets(C_triplet_vec.begin(), C_triplet_vec.end());
 
     // calculate bounds
+    // 原边界已经考虑vehicle_width_m，所以这里需要加回，并减去圆半径
     const double bounds_offset =
-      vehicle_info_.vehicle_width_m / 2.0 - vehicle_circle_radiuses_.at(l_idx);
-    const auto & [part_ub, part_lb] = extractBounds(ref_points, l_idx, bounds_offset);
+      vehicle_info_.vehicle_width_m / 2.0 - vehicle_circle_radiuses_.at(l_idx);  //车辆半宽减去圆形半径，得到圆形边缘到车辆中心的横向距离
+    const auto & [part_ub, part_lb] = extractBounds(ref_points, l_idx, bounds_offset); //目前边界是相对于参考路径的，从参考点中提取左右边界，并应用偏移量
 
-    // soft constraints
+    /**
+     * 软约束处理:引入slack变量使约束可违反但有惩罚
+     * 
+     * 构造3*N_ref行的约束块:
+     * 第1块 (0 ~ N_ref-1行):  C*X + s >= lower_bound - C_vec
+     * 第2块 (N_ref ~ 2*N_ref-1行):  C*X + s <= upper_bound - C_vec
+     * 第3块 (2*N_ref ~ 3*N_ref-1行):  s >= 0
+     * 
+     * 对应的矩阵形式:
+     * [ C  0  ...  0  I  0  ... ]             [lower_bound - C_vec]
+     * [-C  0  ...  0  I  0  ...] * [X;u;s] >= [C_vec - upper_bound]
+     * [ 0  0  ...  0  I  0  ...]              [        0         ]
+     */
     if (mpt_param_.soft_constraint) {
       const size_t A_blk_rows = 3 * N_ref;
 
@@ -1387,7 +1597,16 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
       A_rows_end += A_blk_rows;
     }
 
-    // hard constraints
+    /**
+     * 硬约束处理:严格满足碰撞避免约束
+     * 
+     * 构造N_ref行的约束块:
+     * lower_bound - C_vec <= C*X <= upper_bound - C_vec
+     * 
+     * 对应的矩阵形式:
+     * [C  0  ...  0] * [X;u] <= [upper_bound - C_vec]
+     *                          >= [lower_bound - C_vec]
+     */
     if (mpt_param_.hard_constraint) {
       const size_t A_blk_rows = N_ref;
 
@@ -1402,8 +1621,17 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
     }
   }
 
-  // 3. fixed points constraint
-  // X = B v + w where point is fixed
+  /**
+   * 3. 构建固定点约束
+   * 
+   * 对于标记为固定的参考点,其运动学状态(横向位置、航向角)必须保持不变。
+   * 约束形式: X_i = fixed_kinematic_state_i
+   * 
+   * 在矩阵中表示为:
+   * [0 ... I ... 0] * [X;u;...] = fixed_kinematic_state
+   *      ^^^
+   *   第i个状态块
+   */
   for (const size_t i : fixed_points_indices) {
     A.block(A_rows_end, D_x * i, D_x, D_x) = Eigen::MatrixXd::Identity(D_x, D_x);
 
@@ -1413,7 +1641,20 @@ MPTOptimizer::ConstraintMatrix MPTOptimizer::calcConstraintMatrix(
     A_rows_end += D_x;
   }
 
-  // 4. steer angle limit
+  /**
+   * 4. 构建转向角限制约束
+   * 
+   * 限制控制输入(转向角)在合理范围内,基于参考曲率计算期望转向角,
+   * 然后允许在其附近±max_steer_rad范围内变化。
+   * 
+   * 约束形式: ref_steer_angle - max_steer <= u <= ref_steer_angle + max_steer
+   * 其中: ref_steer_angle = atan(wheel_base * curvature)
+   * 
+   * 在矩阵中表示为:
+   * [0 ... 0 | I | 0 ... 0] * [X;u;...] = u
+   *            ^^
+   *         控制变量部分
+   */
   if (mpt_param_.steer_limit_constraint) {
     A.block(A_rows_end, N_x, N_u, N_u) = Eigen::MatrixXd::Identity(N_u, N_u);
 
@@ -1471,6 +1712,7 @@ std::optional<Eigen::VectorXd> MPTOptimizer::calcOptimizedSteerAngles(
 
   // for manual warm start, calculate initial solution
   const auto u0 = [&]() -> std::optional<Eigen::VectorXd> {
+    // 如果开启 enable_manual_warm_start，并且有上一帧的参考点，就构造一个初始解 u0。
     if (mpt_param_.enable_manual_warm_start) {
       if (prev_ref_points_ptr_ && 1 < prev_ref_points_ptr_->size()) {
         return calcInitialSolutionForManualWarmStart(ref_points, *prev_ref_points_ptr_);
@@ -1481,7 +1723,7 @@ std::optional<Eigen::VectorXd> MPTOptimizer::calcOptimizedSteerAngles(
 
   // for manual start, update objective and constraint matrix
   const auto [updated_obj_mat, updated_const_mat] =
-    updateMatrixForManualWarmStart(obj_mat, const_mat, u0);
+    updateMatrixForManualWarmStart(obj_mat, const_mat, u0); //有初始值的话，使用增量形式优化
 
   // calculate matrices for qp
   const Eigen::MatrixXd & H = updated_obj_mat.hessian;
@@ -1497,6 +1739,10 @@ std::optional<Eigen::VectorXd> MPTOptimizer::calcOptimizedSteerAngles(
     autoware::osqp_interface::calCSCMatrixTrapezoidal(H);
   const autoware::osqp_interface::CSC_Matrix A_csc = autoware::osqp_interface::calCSCMatrix(A);
   if (
+    // 如果上一帧求解成功，
+    // 并且本帧矩阵尺寸没变，
+    // 就复用已有 solver，只更新矩阵数值。
+
     prev_solution_status_ == 1 && mpt_param_.enable_warm_start && prev_mat_n_ == H.rows() &&
     prev_mat_m_ == A.rows()) {
     RCLCPP_INFO_EXPRESSION(logger_, enable_debug_info_, "warm start");
@@ -1739,22 +1985,42 @@ size_t MPTOptimizer::getNumberOfSlackVariables() const
 {
   if (mpt_param_.soft_constraint) {
     if (mpt_param_.l_inf_norm) {
+      // 如果使用 L∞ 范数，只返回 1 个松弛变量。L∞ 范数的特点是取所有约束 violation 的最大值，因此只需要一个松弛变量来表示最大的约束违反程度。
       return 1;
     }
-    return vehicle_circle_longitudinal_offsets_.size();
+    return vehicle_circle_longitudinal_offsets_.size(); //存储了用于近似车辆形状的多个圆形的纵向偏移量。每个圆形都需要一个独立的松弛变量来处理其对应的碰撞约束。
   }
   return 0;
 }
 
+/**
+ * @brief 计算归一化的避让成本
+ * 
+ * 该函数根据参考点的边界约束和参数配置，计算一个归一化到 [0, 1] 范围的避让成本值。
+ * 当车辆偏离期望路径时，该成本用于在优化过程中惩罚过大的横向偏移。
+ * 
+ * 计算逻辑：
+ * 1. 首先计算负向避让成本，取左右边界的较小值（考虑安全裕度）
+ * 2. 如果负向避让成本 >= 0，说明当前点在安全范围内，无需避让，返回空值
+ * 3. 否则将负向避让成本归一化到 [0, 1] 范围并返回
+ * 
+ * @param ref_point 参考点，包含边界信息（上下界）
+ * @return std::optional<double> 归一化的避让成本值 [0, 1]，如果不需要避让则返回空值
+ */
 std::optional<double> MPTOptimizer::calcNormalizedAvoidanceCost(
   const ReferencePoint & ref_point) const
 {
+  // 计算负向避让成本：取左右边界距离的最小值（减去安全裕度后取负）
   const double negative_avoidance_cost = std::min(
     -ref_point.bounds.lower_bound - mpt_param_.avoidance_cost_margin,
     ref_point.bounds.upper_bound - mpt_param_.avoidance_cost_margin);
+  
+  // 如果负向避让成本 >= 0，说明车辆在安全边界内，不需要避让
   if (0 <= negative_avoidance_cost) {
     return {};
   }
+  
+  // 将负向避让成本归一化到 [0, 1] 范围
   return std::clamp(-negative_avoidance_cost / mpt_param_.max_avoidance_cost, 0.0, 1.0);
 }
 }  // namespace autoware::path_optimizer

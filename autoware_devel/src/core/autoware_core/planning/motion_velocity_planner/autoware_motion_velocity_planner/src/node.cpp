@@ -105,7 +105,14 @@ MotionVelocityPlannerNode::MotionVelocityPlannerNode(const rclcpp::NodeOptions &
     if (name.empty()) {
       break;
     }
-    planner_manager_.load_module_plugin(*this, name);
+  //   launch_modules 决定加载哪些插件
+  // -> MotionVelocityPlannerManager 用 pluginlib 创建插件
+  // -> 插件声明自己需要哪些订阅数据
+  // -> node 收到轨迹后更新 planner_data
+  // -> manager 逐个调用 plugin->plan()
+  // -> node 把所有插件返回的 stop/slowdown/limit 合并进输出轨迹
+
+    planner_manager_.load_module_plugin(*this, name); // 加载插件，调用各个速度规划插件，最后把停点/慢行区/限速写回轨迹。
   }
 
   set_param_callback_ = this->add_on_set_parameters_callback(
@@ -305,6 +312,7 @@ void MotionVelocityPlannerNode::on_trajectory(
   std::map<std::string, double> processing_times;
   stop_watch.tic("Total");
 
+  // 把最新 odom、accel、object、pointcloud、occupancy、map、traffic signal 写入 planner_data_
   if (!update_planner_data(processing_times, input_trajectory_msg->points)) {
     return;
   }
@@ -315,6 +323,7 @@ void MotionVelocityPlannerNode::on_trajectory(
     return;
   }
 
+  // 如果新地图到了，构造 RouteHandler
   if (has_received_map_) {
     planner_data_->route_handler = std::make_shared<route_handler::RouteHandler>(*map_ptr_);
     has_received_map_ = false;
@@ -380,6 +389,7 @@ void MotionVelocityPlannerNode::insert_slowdown(
   }
 }
 
+// 在速度规划插件运行前，先把输入轨迹的速度做一次物理约束处理，让后续插件看到的轨迹速度更合理，例如过弯速度不要太高、转向变化不要太急、加速度/jerk 不要突变。
 autoware::motion_velocity_planner::TrajectoryPoints MotionVelocityPlannerNode::smooth_trajectory(
   const autoware::motion_velocity_planner::TrajectoryPoints & trajectory_points,
   const std::shared_ptr<autoware::motion_velocity_planner::PlannerData> & planner_data) const
@@ -389,13 +399,22 @@ autoware::motion_velocity_planner::TrajectoryPoints MotionVelocityPlannerNode::s
   const double a0 = planner_data->current_acceleration.accel.accel.linear.x;
   const auto & smoother = planner_data->velocity_smoother_;
 
+  //车辆沿曲线行驶时有横向加速度，a_lat = v^2 * κ（离心力），因此速度v <= sqrt(a_lat_max / |κ|)
   const auto traj_lateral_acc_filtered =
-    smoother->applyLateralAccelerationFilter(trajectory_points);
+    smoother->applyLateralAccelerationFilter(trajectory_points);  // 
+
+  // 方向盘限制：相邻轨迹点曲率变化大时，前轮转角变化也大，速度太快，过弯时，方向盘跟不上
+  // 转向角：δ = atan(L * κ)
+  // δ_dot ≈ Δδ / Δt 方向盘
+  // 过弯时间：Δt = Δs / v
+  // δ_dot ≈ (Δδ / Δs) * v
+  // 为了不超过转向角速度上限：v <= δ_dot_max / |Δδ / Δs|
 
   const auto traj_steering_rate_limited =
     smoother->applySteeringRateLimit(traj_lateral_acc_filtered, false);
 
   // Resample trajectory with ego-velocity based interval distances
+  // 找到自车在轨迹上的当前位置，并裁剪掉身后的轨迹：
   auto traj_resampled = traj_steering_rate_limited;
   const size_t traj_resampled_closest =
     autoware::motion_utils::findFirstNearestIndexWithSoftConstraints(
@@ -405,9 +424,11 @@ autoware::motion_velocity_planner::TrajectoryPoints MotionVelocityPlannerNode::s
   // Clip trajectory from closest point
   autoware::motion_velocity_planner::TrajectoryPoints clipped;
   autoware::motion_velocity_planner::TrajectoryPoints traj_smoothed;
+  // 找到自车在轨迹上的当前位置，并裁剪掉身后的轨迹：
   clipped.insert(
     clipped.end(), std::next(traj_resampled.begin(), static_cast<int64_t>(traj_resampled_closest)),
     traj_resampled.end());
+    //真正做纵向速度平滑
   if (!smoother->apply(v0, a0, clipped, traj_smoothed, debug_trajectories, false)) {
     RCLCPP_ERROR(get_logger(), "failed to smooth");
   }
@@ -452,10 +473,11 @@ autoware_planning_msgs::msg::Trajectory MotionVelocityPlannerNode::generate_traj
     resampled_smoothed_trajectory_points, planner_data_->current_odometry.pose.pose.position);
   processing_times["calculate_time_from_start"] = stop_watch.toc("calculate_time_from_start");
   stop_watch.tic("plan_velocities");
+  //遍历每个插件，获取必须停车、慢行或限速的位置
   const auto planning_results = planner_manager_.plan_velocities(
     input_trajectory_points, resampled_smoothed_trajectory_points, planner_data_);
   processing_times["plan_velocities"] = stop_watch.toc("plan_velocities");
-
+// 把 stop point 插入轨迹，把 stop point 后面的速度设成 0，或者把 slowdown 区间速度裁剪到目标速度
   for (const auto & planning_result : planning_results) {
     for (const auto & stop_point : planning_result.stop_points)
       insert_stop(output_trajectory_msg, stop_point);

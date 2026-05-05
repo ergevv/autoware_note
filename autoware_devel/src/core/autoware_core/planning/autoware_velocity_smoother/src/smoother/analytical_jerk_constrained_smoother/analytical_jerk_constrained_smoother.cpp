@@ -104,6 +104,13 @@ AnalyticalJerkConstrainedSmoother::Param AnalyticalJerkConstrainedSmoother::getP
   return smoother_param_;
 }
 
+// v0                -> 当前自车速度
+// a0                -> 当前自车加速度
+// clipped           -> 从自车最近点开始裁剪后的前方轨迹
+// traj_smoothed     -> 输出的平滑后轨迹
+// debug_trajectories -> 这里基本没用
+// false             -> 不发布 debug trajectory
+
 bool AnalyticalJerkConstrainedSmoother::apply(
   const double initial_vel, const double initial_acc, const TrajectoryPoints & input,
   TrajectoryPoints & output, [[maybe_unused]] std::vector<TrajectoryPoints> & debug_trajectories,
@@ -131,6 +138,8 @@ bool AnalyticalJerkConstrainedSmoother::apply(
     output.front().acceleration_mps2 = initial_acc;
     return true;
   }
+
+  // 寻找低速点，前面速度在下降，后面速度又开始上升
   std::vector<std::pair<size_t, double>> decel_target_indices;
   searchDecelTargetIndices(input, closest_index, decel_target_indices);
   RCLCPP_DEBUG(logger_, "Num deceleration targets: %zd", decel_target_indices.size());
@@ -157,6 +166,7 @@ bool AnalyticalJerkConstrainedSmoother::apply(
     }
 
     RCLCPP_DEBUG(logger_, "Apply forward jerk filter from: %ld", fwd_start_index);
+    // 从低速点开始，向前逐点积分
     applyForwardJerkFilter(
       reference_trajectory, fwd_start_index, fwd_start_vel, fwd_start_acc, smoother_param_,
       filtered_trajectory);

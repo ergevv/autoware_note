@@ -87,21 +87,33 @@ std::vector<double> calcSegmentLengthVector(const std::vector<TrajectoryPoint> &
 }
 }  // namespace
 
+/**
+ * @brief PathOptimizer节点的构造函数
+ * 
+ * 初始化路径优化器节点，包括：
+ * - ROS2接口（发布器和订阅器）的创建
+ * - 参数声明和加载
+ * - 核心算法模块的初始化
+ * - 诊断工具的注册
+ * - 调试功能的配置
+ * 
+ * @param node_options ROS2节点选项，包含节点配置参数
+ */
 PathOptimizer::PathOptimizer(const rclcpp::NodeOptions & node_options)
 : Node("path_optimizer", node_options),
   vehicle_info_(autoware::vehicle_info_utils::VehicleInfoUtils(*this).getVehicleInfo()),
   debug_data_ptr_(std::make_shared<DebugData>()),
   conditional_timer_(std::make_shared<ConditionalTimer>())
 {
-  // interface publisher
+  // 创建输出轨迹和虚拟墙的发布器
   traj_pub_ = create_publisher<Trajectory>("~/output/path", 1);
   virtual_wall_pub_ = create_publisher<MarkerArray>("~/virtual_wall", 1);
 
-  // interface subscriber
+  // 创建输入路径的订阅器
   path_sub_ = create_subscription<Path>(
     "~/input/path", 1, std::bind(&PathOptimizer::onPath, this, std::placeholders::_1));
 
-  // debug publisher
+  // 创建调试信息发布器：扩展轨迹、标记、计算时间和处理时间详情
   debug_extended_traj_pub_ = create_publisher<Trajectory>("~/debug/extended_traj", 1);
   debug_markers_pub_ = create_publisher<MarkerArray>("~/debug/marker", 1);
   debug_calculation_time_str_pub_ = create_publisher<StringStamped>("~/debug/calculation_time", 1);
@@ -110,8 +122,8 @@ PathOptimizer::PathOptimizer(const rclcpp::NodeOptions & node_options)
   debug_processing_time_detail_pub_ =
     create_publisher<autoware_utils::ProcessingTimeDetail>("~/debug/processing_time_detail_ms", 1);
 
-  {  // parameters
-    // parameter for option
+  {  // 声明和加载所有配置参数
+    // 功能选项参数
     enable_outside_drivable_area_stop_ =
       declare_parameter<bool>("option.enable_outside_drivable_area_stop");
     enable_skip_optimization_ = declare_parameter<bool>("option.enable_skip_optimization");
@@ -120,24 +132,25 @@ PathOptimizer::PathOptimizer(const rclcpp::NodeOptions & node_options)
     use_footprint_polygon_for_outside_drivable_area_check_ =
       declare_parameter<bool>("option.use_footprint_polygon_for_outside_drivable_area_check");
 
-    // parameter for debug marker
+    // 调试标记发布选项
     enable_pub_debug_marker_ = declare_parameter<bool>("option.debug.enable_pub_debug_marker");
     enable_pub_extra_debug_marker_ =
       declare_parameter<bool>("option.debug.enable_pub_extra_debug_marker");
 
-    // parameter for debug info
+    // 调试信息启用选项
     enable_debug_info_ = declare_parameter<bool>("option.debug.enable_debug_info");
 
+    // 可行驶区域外的停车边距
     vehicle_stop_margin_outside_drivable_area_ =
       declare_parameter<double>("common.vehicle_stop_margin_outside_drivable_area");
 
-    // parameters for ego nearest search
+    // 自车最近点搜索参数
     ego_nearest_param_ = EgoNearestParam(this);
 
-    // parameters for trajectory
+    // 轨迹相关参数
     traj_param_ = TrajectoryParam(this);
 
-    // Diagnostics
+    // 注册诊断检查器
     {
       updater_.setHardwareID("path_optimizer");
       updater_.add(
@@ -145,25 +158,23 @@ PathOptimizer::PathOptimizer(const rclcpp::NodeOptions & node_options)
     }
   }
 
+  // 创建时间性能追踪器
   time_keeper_ = std::make_shared<autoware_utils::TimeKeeper>(debug_processing_time_detail_pub_);
 
-  // create core algorithm pointers with parameter declaration
+  // 初始化核心算法模块：重规划检查器和MPT优化器
   replan_checker_ptr_ = std::make_shared<ReplanChecker>(this, ego_nearest_param_);
   mpt_optimizer_ptr_ = std::make_shared<MPTOptimizer>(
     this, enable_debug_info_, ego_nearest_param_, vehicle_info_, traj_param_, debug_data_ptr_,
     time_keeper_);
 
-  // reset planners
-  // NOTE: This function must be called after core algorithms (e.g. mpt_optimizer_) have been
-  // initialized.
+  // 重置规划器状态（必须在核心算法初始化后调用）
   initializePlanning();
 
-  // set parameter callback
-  // NOTE: This function must be called after core algorithms (e.g. mpt_optimizer_) have been
-  // initialized.
+  // 设置参数回调函数（必须在核心算法初始化后调用）
   set_param_res_ = this->add_on_set_parameters_callback(
     std::bind(&PathOptimizer::onParam, this, std::placeholders::_1));
 
+  // 初始化日志级别配置和发布时间发布器
   logger_configure_ = std::make_unique<autoware_utils::LoggerLevelConfigure>(this);
   published_time_publisher_ = std::make_unique<autoware_utils::PublishedTimePublisher>(this);
 }
@@ -173,7 +184,7 @@ rcl_interfaces::msg::SetParametersResult PathOptimizer::onParam(
 {
   using autoware_utils::update_param;
 
-  // parameters for option
+  // 功能选项参数
   update_param<bool>(
     parameters, "option.enable_outside_drivable_area_stop", enable_outside_drivable_area_stop_);
   update_param<bool>(parameters, "option.enable_skip_optimization", enable_skip_optimization_);
@@ -183,29 +194,29 @@ rcl_interfaces::msg::SetParametersResult PathOptimizer::onParam(
     parameters, "option.use_footprint_polygon_for_outside_drivable_area_check",
     use_footprint_polygon_for_outside_drivable_area_check_);
 
-  // parameters for debug marker
+  // 调试标记发布选项
   update_param<bool>(parameters, "option.debug.enable_pub_debug_marker", enable_pub_debug_marker_);
   update_param<bool>(
     parameters, "option.debug.enable_pub_extra_debug_marker", enable_pub_extra_debug_marker_);
 
-  // parameters for debug info
+  // 调试信息启用选项
   update_param<bool>(parameters, "option.debug.enable_debug_info", enable_debug_info_);
 
   update_param<double>(
     parameters, "common.vehicle_stop_margin_outside_drivable_area",
     vehicle_stop_margin_outside_drivable_area_);
 
-  // parameters for ego nearest search
+  // 自车最近点搜索参数
   ego_nearest_param_.onParam(parameters);
 
-  // parameters for trajectory
+  // 轨迹相关参数
   traj_param_.onParam(parameters);
 
-  // parameters for core algorithms
+  // 核心算法模块参数
   replan_checker_ptr_->onParam(parameters);
   mpt_optimizer_ptr_->onParam(parameters);
 
-  // reset planners
+  // 重置规划器状态
   initializePlanning();
 
   rcl_interfaces::msg::SetParametersResult result;
@@ -228,17 +239,38 @@ void PathOptimizer::resetPreviousData()
   mpt_optimizer_ptr_->resetPreviousData();
 }
 
+/**
+ * @brief 处理接收到的路径消息并进行轨迹优化
+ * 
+ * 这是路径优化器的核心回调函数，负责将输入的路径转换为优化的轨迹。
+ * 主要流程包括：
+ * 1. 验证输入路径和自车里程计数据的有效性
+ * 2. 检查路径行驶方向（暂不支持后退路径）
+ * 3. 创建规划器所需的数据结构
+ * 4. 生成优化后的轨迹点
+ * 5. 扩展轨迹以平滑连接优化轨迹和后续路径
+ * 6. 在停止点后设置零速度
+ * 7. 发布调试数据和最终轨迹
+ * 
+ * @param path_ptr 输入路径的智能指针，包含待优化的路径点信息
+ * 
+ * @return void 无返回值，结果通过轨迹发布器发布
+ * 
+ * @note 如果输入路径无效、里程计数据缺失或路径为后退方向，函数会提前返回
+ * @note 后退路径目前不被支持，会直接转换为轨迹并发布警告信息
+ * @note 计算时间会在所有处理完成后记录并发布
+ */
 void PathOptimizer::onPath(const Path::ConstSharedPtr path_ptr)
 {
   autoware_utils::ScopedTimeTrack st(__func__, *time_keeper_);
   stop_watch_.tic();
 
-  // check if input path is valid
+  // 验证输入路径的有效性
   if (!checkInputPath(*path_ptr, *get_clock())) {
     return;
   }
 
-  // check if ego's odometry is valid
+  // 获取并验证自车里程计数据
   const auto ego_odom_ptr = ego_odom_sub_.take_data();
   if (!ego_odom_ptr) {
     RCLCPP_INFO_SKIPFIRST_THROTTLE(
@@ -246,8 +278,7 @@ void PathOptimizer::onPath(const Path::ConstSharedPtr path_ptr)
     return;
   }
 
-  // 0. return if path is backward
-  // TODO(murooka): support backward path
+  // 检查路径是否为后退方向，后退路径暂不支持
   const auto is_driving_forward = driving_direction_checker_.isDrivingForward(path_ptr->points);
   if (!is_driving_forward) {
     RCLCPP_WARN_THROTTLE(
@@ -262,24 +293,23 @@ void PathOptimizer::onPath(const Path::ConstSharedPtr path_ptr)
     return;
   }
 
-  // 1. create planner data
+  // 创建规划器数据结构，整合路径和自车状态信息
   const auto planner_data = createPlannerData(*path_ptr, ego_odom_ptr);
 
-  // 2. generate optimized trajectory
+  // 基于MPT算法生成优化轨迹
   const auto optimized_traj_points = generateOptimizedTrajectory(planner_data);
 
-  // 3. extend trajectory to connect the optimized trajectory and the following path smoothly
+  // 扩展轨迹以确保与后续路径的平滑连接
   auto full_traj_points = extendTrajectory(planner_data.traj_points, optimized_traj_points);
 
-  // 4. set zero velocity after stop point
+  // 在检测到停止点后将后续所有轨迹点的速度设为零
   setZeroVelocityAfterStopPoint(full_traj_points);
 
-  // 5. publish debug data
+  // 发布调试数据和更新诊断信息
   publishDebugData(planner_data.header);
   updater_.force_update();
 
-  // publish calculation_time
-  // NOTE: This function must be called after measuring onPath calculation time
+  // 发布计算耗时（必须在测量完成后调用）
   debug_calculation_time_float_pub_->publish(createFloat64Stamped(now(), stop_watch_.toc()));
 
   const auto output_traj_msg =
@@ -353,13 +383,33 @@ std::vector<TrajectoryPoint> PathOptimizer::generateOptimizedTrajectory(
   return optimized_traj_points;
 }
 
+/**
+ * @brief 优化轨迹，使其满足运动学可行性和无碰撞约束
+ * 
+ * 该函数是路径优化器的核心方法，负责根据规划数据生成优化的轨迹。
+ * 主要功能包括：
+ * 1. 判断是否需要重新规划（基于历史数据和当前状态）
+ * 2. 使用模型预测轨迹(MPT)优化器生成运动学可行且无碰撞的轨迹
+ * 3. 处理优化失败的情况（超时或使用历史轨迹）
+ * 4. 更新轨迹点的速度信息
+ * 
+ * @param planner_data 规划器数据，包含当前车辆状态、路径点、自车位姿等信息
+ * @return std::vector<TrajectoryPoint> 优化后的轨迹点序列
+ *         - 如果不需要重规划且存在历史优化轨迹，返回历史优化轨迹
+ *         - 如果跳过优化，返回输入的路径点
+ *         - 如果MPT优化成功，返回优化后的轨迹
+ *         - 如果优化失败但超时，返回输入路径点
+ *         - 如果优化失败但未超时，返回历史优化轨迹
+ */
 std::vector<TrajectoryPoint> PathOptimizer::optimizeTrajectory(const PlannerData & planner_data)
 {
   autoware_utils::ScopedTimeTrack st(__func__, *time_keeper_);
   is_optimization_failed_ = false;
   const auto & p = planner_data;
 
-  // 1. check if replan (= optimization) is required
+  // 判断是否需要重新规划
+  // 如果需要重置之前的优化或检测到需要重规划的条件，则执行完整优化
+  // 否则复用之前的优化结果以提高效率
   const bool is_replan_required = [&]() {
     const bool reset_prev_optimization = replan_checker_ptr_->isResetRequired(planner_data);
     if (enable_reset_prev_optimization_ || reset_prev_optimization) {
@@ -379,13 +429,15 @@ std::vector<TrajectoryPoint> PathOptimizer::optimizeTrajectory(const PlannerData
     return p.traj_points;
   }
 
-  // 2. make trajectory kinematically-feasible and collision-free (= inside the drivable area)
-  //    with model predictive trajectory
+  // 使用模型预测轨迹(MPT)优化器进行轨迹优化
+  // MPT优化器确保轨迹满足运动学约束且在可行驶区域内无碰撞
   const auto mpt_traj = mpt_optimizer_ptr_->optimizeTrajectory(planner_data);
 
   const double elapsed_time = conditional_timer_->getElapsedTime().count();
   const bool elapsed_time_over_three_seconds = (elapsed_time > 3.0);
 
+  // 根据优化结果和耗时决定最终使用的轨迹
+  // 优先级：MPT优化结果 > 超时时的输入轨迹 > 历史优化轨迹
   auto optimized_traj_points = [&]() {
     if (mpt_traj) {
       return std::move(*mpt_traj);
@@ -400,9 +452,8 @@ std::vector<TrajectoryPoint> PathOptimizer::optimizeTrajectory(const PlannerData
   conditional_timer_->update(optimized_traj_failed);
   is_optimization_failed_ = optimized_traj_failed && elapsed_time_over_three_seconds;
 
-  // 3. update velocity
-  //    NOTE: When optimization failed or is skipped, velocity in trajectory points must
-  //          be updated since velocity in input trajectory (path) may change.
+  // 更新轨迹点的速度信息
+  // 即使优化失败或被跳过，也需要更新速度，因为输入轨迹的速度可能已发生变化
   applyInputVelocity(optimized_traj_points, p.traj_points, planner_data.ego_pose);
 
   return optimized_traj_points;
