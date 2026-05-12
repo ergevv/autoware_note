@@ -186,28 +186,29 @@ double SmootherBase::computeVelocityLimit(
     const double higher = ratio_limits[i].first;
 
     // If ratio is higher than the upper bound, continue to the next range
-    if (local_ratio > higher) {
+    if (local_ratio > higher) { //说明这个弯太急了，即使在当前速度区间的低速端也无法满足横向加速度限制。所以当前速度区间不可用，继续往更低速度区间查。
       continue;
     }
 
     // If ratio is lower than or equal to the lower bound
     if (local_ratio <= lower) {
       if (i == static_cast<int>(ratio_limits.size()) - 1) {
-        return std::numeric_limits<double>::max();  // max_double equivalent
+        return std::numeric_limits<double>::max();  // max_double equivalent,这个约束本身不需要限速。
       } else {
-        return velocity_thresholds[i];
+        return velocity_thresholds[i];  //如果不是最后一个区间，就返回当前区间的上边界速度
       }
     }
 
     // Between lower and higher, calculate the velocity threshold
     ThresholdType current_threshold;
+    // 在满足约束的情况下，允许的最高速度。以横向加速度为例，如果曲率很小，应该尽量返回高速度甚至不限制；如果曲率很大，才逐步落到低速区间。
     if (i == static_cast<int>(ratio_limits.size()) - 1) {
       current_threshold = threshold_values.back();
     } else {
       current_threshold = threshold_values[i];
     }
 
-    return compute_velocity_func(current_threshold, local_ratio);
+    return compute_velocity_func(current_threshold, local_ratio); //使用当前车速区间允许的加速度跟曲率推测速度
   }
 
   // If no appropriate range is found
@@ -338,6 +339,7 @@ TrajectoryPoints SmootherBase::applyLateralAccelerationFilter(
   return output;
 }
 
+// 根据转向角速度限制来降低轨迹速度。它不是直接平滑纵向速度，而是先根据路径曲率变化，判断“如果按当前速度走这段轨迹，前轮转角变化会不会太快”，如果太快，就把对应轨迹点速度压低。
 TrajectoryPoints SmootherBase::applySteeringRateLimit(
   const TrajectoryPoints & input, const bool use_resampling,
   const double input_points_interval) const
@@ -348,9 +350,10 @@ TrajectoryPoints SmootherBase::applySteeringRateLimit(
     return input;  // cannot calculate the desired velocity. do nothing.
   }
 
-  const auto steer_rate_velocity_ratio_limits = computeSteerRateVelocityRatioLimits();
+  const auto steer_rate_velocity_ratio_limits = computeSteerRateVelocityRatioLimits(); //在不同速度区间下，允许的最大转角空间变化率 dδ/ds。与横向速度一样的逻辑，不同速度区间给出不同的转角的最大变化率。然后求出曲率区间来给出后续的速度限制
 
   // Interpolate with constant interval distance for lateral acceleration calculation.
+  // 如果 use_resampling = true，会按固定距离间隔重采样，方便计算转角变化率
   const double points_interval = use_resampling ? base_param_.sample_ds : input_points_interval;
 
   auto output = applyPreProcess(input, points_interval, use_resampling);
@@ -369,7 +372,8 @@ TrajectoryPoints SmootherBase::applySteeringRateLimit(
     auto & steer_back = output.at(i).front_wheel_angle_rad;
 
     // calculate the just 2 steering angle
-    steer_front = std::atan(base_param_.wheel_base * curvature_v.at(i + 1));
+    // 使用简化自行车模型计算转向角：tan(δ) = L / R
+    steer_front = std::atan(base_param_.wheel_base * curvature_v.at(i + 1)); //车辆需要的前轮转角
     steer_back = std::atan(base_param_.wheel_base * curvature_v.at(i));
 
     const auto steering_diff = std::fabs(steer_front - steer_back);
@@ -381,6 +385,7 @@ TrajectoryPoints SmootherBase::applySteeringRateLimit(
   steer_rate_velocity_ratio_arr.back() = steer_rate_velocity_ratio_arr.at((output.size() - 2));
 
   // Step3. Remove noise by mean filter.
+  // 简单三点均值滤波，让 dδ/ds 更平滑，避免某一个噪声点导致速度突然被压低
   for (size_t i = 1; i < steer_rate_velocity_ratio_arr.size() - 1; i++) {
     steer_rate_velocity_ratio_arr.at(i) =
       (steer_rate_velocity_ratio_arr.at(i - 1) + steer_rate_velocity_ratio_arr.at(i) +
@@ -394,11 +399,12 @@ TrajectoryPoints SmootherBase::applySteeringRateLimit(
       continue;
     }
 
+    // 转角变化发生在点 i 到 i+1 这段 segment 上，所以用两端点平均速度代表这段的行驶速度。
     const auto mean_vel =
       (output.at(i).longitudinal_velocity_mps + output.at(i + 1).longitudinal_velocity_mps) / 2.0;
 
     const auto local_velocity_limit = computeVelocityLimitFromSteerRate(
-      steer_rate_velocity_ratio_arr.at(i), steer_rate_velocity_ratio_limits);
+      steer_rate_velocity_ratio_arr.at(i), steer_rate_velocity_ratio_limits); // 与横向加速度类似
 
     if (mean_vel < local_velocity_limit) {
       continue;
@@ -408,7 +414,7 @@ TrajectoryPoints SmootherBase::applySteeringRateLimit(
       auto & velocity = output.at(i + k).longitudinal_velocity_mps;
       const float target_velocity = std::max(
         base_param_.min_curve_velocity,
-        std::min(local_velocity_limit, velocity * (local_velocity_limit / mean_vel)));
+        std::min(local_velocity_limit, velocity * (local_velocity_limit / mean_vel))); // 不是直接把两个点都设成 local_velocity_limit，而是按比例缩放。这样两点速度形状大致保留，只是整体降低。
       velocity = std::min(velocity, target_velocity);
     }
   }

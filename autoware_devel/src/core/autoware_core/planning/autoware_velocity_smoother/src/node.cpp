@@ -331,6 +331,7 @@ void VelocitySmootherNode::publishTrajectory(const TrajectoryPoints & trajectory
     pub_trajectory_, publishing_trajectory.header.stamp);
 }
 
+
 void VelocitySmootherNode::calcExternalVelocityLimit()
 {
   autoware_utils_debug::ScopedTimeTrack st(__func__, *time_keeper_);
@@ -355,17 +356,24 @@ void VelocitySmootherNode::calcExternalVelocityLimit()
   const double margin = node_param_.margin_to_insert_external_velocity_limit;
 
   // Set distance as zero if ego vehicle is stopped and external velocity limit is zero
+  // 场景: 车辆已经停止（速度接近 0）且限速也是 0。
+  // 处理: 将减速距离设为 0。
+  // 原因: 既然车已经停了，就不需要再预留减速距离，避免不必要的计算开销。
   if (
     std::fabs(current_odometry_ptr_->twist.twist.linear.x) < eps &&
     external_velocity_limit_.velocity < eps) {
     external_velocity_limit_.dist = 0.0;
   }
 
+  //  平滑器正常情况下的最大加速度限制（从 ROS 参数服务器获取）。
   const auto base_max_acceleration = get_parameter("normal.max_acc").as_double();
+  // acceleration_request: 判断是否需要临时提升加速度上限。条件是：
+  // 外部消息启用了约束 (use_constraints)。
+  // 外部要求的最大加速度大于平滑器的默认值。
   const auto acceleration_request =
     external_velocity_limit_ptr_->use_constraints &&
     base_max_acceleration < external_velocity_limit_ptr_->constraints.max_acceleration;
-  // 当外部模块（如紧急制动）需要更大加速度时，临时提升平滑器的加速度限制。
+  // 当外部模块（如紧急制动）需要更大加速度时，临时提升平滑器的加速度限制。在紧急情况下（如前方突然出现障碍物），允许平滑器突破常规的舒适性限制，以更激进的方式减速。
   if (
     acceleration_request &&
     current_odometry_ptr_->twist.twist.linear.x < external_velocity_limit_ptr_->max_velocity) {
@@ -381,16 +389,22 @@ void VelocitySmootherNode::calcExternalVelocityLimit()
   // constraints.
   // if external velocity limit decreases
   // 仅当限速变化时才重新计算减速距离，避免重复计算。
+  // external_velocity_limit_.velocity 是模块内部保存的上一轮外部限速；external_velocity_limit_ptr_->max_velocity 是这次新收到的限速。
+  // 如果两者几乎相等，就不重复计算减速距离。因为外部限速点距离会在后面的 updateDataForExternalVelocityLimit() 中根据车辆已行驶距离逐帧递减。
   if (
     std::fabs((external_velocity_limit_.velocity - external_velocity_limit_ptr_->max_velocity)) >
     eps) {
+//       上一帧平滑输出轨迹在当前 ego 位置的投影速度和加速度。
+// 原因是速度平滑模块希望跨帧连续。如果直接用传感器速度/加速度，噪声会让规划结果抖动；用上一帧轨迹状态可以让本帧规划从“上一次计划到这里时的状态”接着走。
     const double v0 = current_closest_point_from_prev_output_->longitudinal_velocity_mps;
     const double a0 = current_closest_point_from_prev_output_->acceleration_mps2;
 
     if (isEngageStatus(v0)) {
+      // 车辆当前很慢，目标速度已经超过 engage velocity，正在起步阶段。这种情况下不做复杂的减速距离计算，直接把限速插在当前位置，因为起步时速度很低，本来就没有“需要提前很远减速”的问题。
       max_velocity_with_deceleration_ = external_velocity_limit_ptr_->max_velocity;
       external_velocity_limit_.dist = 0.0;
     } else {
+      // 如果外部限速消息带了自己的 constraints，就用外部约束；否则用 smoother 默认参数。
       const auto & cstr = external_velocity_limit_ptr_->constraints;
       const auto a_min = external_velocity_limit_ptr_->use_constraints ? cstr.min_acceleration
                                                                        : smoother_->getMinDecel();
@@ -403,15 +417,17 @@ void VelocitySmootherNode::calcExternalVelocityLimit()
       // until the acceleration becomes zero
       // So we set the maximum increased velocity as the velocity limit
       if (a0 > 0) {
-        max_velocity_with_deceleration_ = v0 - 0.5 * a0 * a0 / j_min;
+        max_velocity_with_deceleration_ = v0 - 0.5 * a0 * a0 / j_min; //当前加速度 a0 > 0，车辆正在加速。即使现在开始施加负 jerk j_min，加速度也不会瞬间变成 0，而是逐渐下降，这段时间内车辆速度仍然增加
       } else {
         max_velocity_with_deceleration_ = v0;
       }
 
+      // 如果新限速低于未来可能达到的峰值速度，就需要规划一个减速距离
       if (external_velocity_limit_ptr_->max_velocity < max_velocity_with_deceleration_) {
         // TODO(mkuri) If v0 < external_velocity_limit_ptr_->max_velocity <
         // max_velocity_with_deceleration_ meets, stronger jerk than expected may be applied to
         // external velocity limit.
+        // 当前速度还低于新限速，但因为当前加速度为正，车辆未来可能冲过新限速。这种情况下，如果要严格不超过新限速，需要很快压低加速度，可能导致实际需要的 jerk 比预期更强，所以代码给 warning。
         if (v0 < external_velocity_limit_ptr_->max_velocity) {
           RCLCPP_WARN(
             get_logger(),
@@ -419,8 +435,12 @@ void VelocitySmootherNode::calcExternalVelocityLimit()
             "condition.");
         }
 
-        double stop_dist = 0.0;
+        double stop_dist = 0.0; //从 v0, a0 平滑降到目标速度 target_vel 所需距离
         std::map<double, double> jerk_profile;
+        // 阶段 1：使用负 jerk，让加速度下降到 a_min
+        // 阶段 2：保持 a_min 匀减速
+        // 阶段 3：使用正 jerk，让加速度回到 0
+
         if (!trajectory_utils::calcStopDistWithJerkConstraints(
               v0, a0, j_max, j_min, a_min, external_velocity_limit_ptr_->max_velocity, jerk_profile,
               stop_dist)) {  // 基于当前速度/加速度，计算满足加加速度约束的减速距离
@@ -464,6 +484,11 @@ void VelocitySmootherNode::onCurrentTrajectory(const Trajectory::ConstSharedPtr 
   stop_watch_.tic();
 
   diagnostics_interface_->clear();
+  // 轨迹：~/input/trajectory
+  // 里程计：/localization/kinematic_state
+  // 当前加速度：~/input/acceleration
+  // 外部限速：~/input/external_velocity_limit_mps
+  // 模式状态：~/input/operation_mode_state  
   base_traj_raw_ptr_ = msg;
 
   // receive data
@@ -506,12 +531,12 @@ void VelocitySmootherNode::onCurrentTrajectory(const Trajectory::ConstSharedPtr 
   }
 
   // calculate distance to insert external velocity limit
-  calcExternalVelocityLimit();
+  calcExternalVelocityLimit();  //新的外部限速应该从轨迹前方多远开始生效，才能让车辆在 jerk 和加速度限制下平滑地降到这个速度。
   updateDataForExternalVelocityLimit();  // 基于当前速度/加速度，计算满足加加速度约束的减速距离
 
   // For negative velocity handling, multiple -1 to velocity if it is for reverse.
   // NOTE: this process must be in the beginning of the process
-  is_reverse_ = isReverse(input_points);  // 检查是否存在速度负向
+  is_reverse_ = isReverse(input_points);  // 检查是否存在任意一个点速度负向
   if (is_reverse_) {
     flipVelocity(input_points);
   }
@@ -569,7 +594,8 @@ void VelocitySmootherNode::updateDataForExternalVelocityLimit()
   }
 
   // calculate distance to insert external velocity limit
-  const double travel_dist = calcTravelDistance();
+  // external_velocity_limit_.dist 表示：从当前 ego 位置往前多少米插入外部限速点。但车辆每一帧都在往前走。
+  const double travel_dist = calcTravelDistance();  //用上一帧输出轨迹 prev_output_，计算上一帧 ego 投影点和当前 ego 投影点之间的二维距离。也就是说，它估计“车辆沿上一帧规划轨迹前进了多少”。
   external_velocity_limit_.dist = std::max(external_velocity_limit_.dist - travel_dist, 0.0);
   RCLCPP_DEBUG(
     get_logger(), "run: travel_dist = %f, external_velocity_limit_dist_ = %f", travel_dist,
@@ -578,6 +604,7 @@ void VelocitySmootherNode::updateDataForExternalVelocityLimit()
   return;
 }
 
+// 从完整输入轨迹中截取 ego 附近的一段轨迹，叠加外部限速/停车限速，然后调用 smoothVelocity() 生成平滑后的速度轨迹
 TrajectoryPoints VelocitySmootherNode::calcTrajectoryVelocity(
   const TrajectoryPoints & traj_input) const
 {
@@ -587,7 +614,7 @@ TrajectoryPoints VelocitySmootherNode::calcTrajectoryVelocity(
 
   // Extract trajectory around self-position with desired forward-backward length
   const size_t input_closest =
-    findNearestIndexFromEgo(traj_input);  // 查找轨迹上距离自车最近的点索引
+    findNearestIndexFromEgo(traj_input);  // 查找轨迹上距离自车最近的点索引，不是简单只看欧氏距离，还会用yaw，距离近但朝向差太多的点可能不会被优先选中。这对交叉、掉头、重叠 lane 很重要。
 
   auto traj_extracted = trajectory_utils::extractPathAroundIndex(
     traj_input, input_closest, node_param_.extract_ahead_dist,
@@ -601,12 +628,12 @@ TrajectoryPoints VelocitySmootherNode::calcTrajectoryVelocity(
   // Debug
   if (publish_debug_trajs_) {
     auto tmp = traj_extracted;
-    if (is_reverse_) flipVelocity(tmp);
+    if (is_reverse_) flipVelocity(tmp);  //如果是倒车，前面主流程里为了复用正向速度规划，会把负速度翻成正速度。debug 发布时再翻回去
     pub_trajectory_raw_->publish(toTrajectoryMsg(tmp));
   }
 
   // Apply external velocity limit
-  applyExternalVelocityLimit(traj_extracted);  // 在轨迹上插入限速点（如红绿灯、临时限速区）
+  applyExternalVelocityLimit(traj_extracted);  // 在轨迹上插入限速点（如之前提取的最大速度、红绿灯、临时限速区）
 
   // Change trajectory velocity to zero when current_velocity == 0 & stop_dist is close
   const size_t traj_extracted_closest = findNearestIndexFromEgo(
@@ -631,6 +658,7 @@ TrajectoryPoints VelocitySmootherNode::calcTrajectoryVelocity(
   return output;
 }
 
+// 输入已经是局部轨迹，并且已经叠加了外部限速、停车点限速；它要做的是：进一步叠加弯道/转向约束，然后从 ego 最近点开始求一条满足纵向加速度与 jerk 约束的速度曲线
 bool VelocitySmootherNode::smoothVelocity(
   const TrajectoryPoints & input, const size_t input_closest,
   TrajectoryPoints & traj_smoothed) const
@@ -642,11 +670,13 @@ bool VelocitySmootherNode::smoothVelocity(
   }
 
   // Calculate initial motion for smoothing
+  // 正常情况下，它优先用上一帧平滑轨迹在当前 ego 位置的投影速度/加速度，这样跨帧连续。只有首次运行、速度偏差过大、engage 起步、手动模式切自动等情况，才切换到 ego 当前速度或 engage 参数。
   const auto [initial_motion, type] =
-    calcInitialMotion(input, input_closest);  // 根据不同的初始条件，计算初始运动状态
+    calcInitialMotion(input, input_closest);  
 
   // 根据速度来限制轨迹
   // Lateral acceleration limit
+  // 
   constexpr bool enable_smooth_limit = true;
   constexpr bool use_resampling = true;
   const auto traj_lateral_acc_filtered =
@@ -663,6 +693,9 @@ bool VelocitySmootherNode::smoothVelocity(
                                     // 计算转向角变化率 → 限制超速变化 → 输出转向限制后轨迹
 
   // Resample trajectory with ego-velocity based interval distance
+//   1. 让轨迹点间距更适合速度优化
+//   2. 根据当前车速决定近处密、远处疏
+// 低速时点距小，便于停车和低速控制；高速时点距适当变大，避免优化规模过大。
   auto traj_resampled = smoother_->resampleTrajectory(
     traj_steering_rate_limited, current_odometry_ptr_->twist.twist.linear.x,
     current_odometry_ptr_->pose.pose, node_param_.ego_nearest_dist_threshold,
@@ -686,6 +719,7 @@ bool VelocitySmootherNode::smoothVelocity(
 
   // 裁剪后：            ●(最近点)─[前方点]─[前方点]
   // Clip trajectory from closest point
+  // 优化器只处理从 ego 最近点往前的轨迹,后方点只是为了输出轨迹结构完整，优化完再补回。
   TrajectoryPoints clipped;
   clipped.insert(
     clipped.end(), traj_resampled.begin() + traj_resampled_closest, traj_resampled.end());
@@ -733,19 +767,21 @@ bool VelocitySmootherNode::smoothVelocity(
   //                   ↓
   // 优化后合并：
   //   完整：[●]─[●]─[●]─●─[●]─[●]
+  //优化只处理了 ego 前方，所以这里把后方点补回来，恢复完整局部轨迹。
   traj_smoothed.insert(
     traj_smoothed.begin(), traj_resampled.begin(), traj_resampled.begin() + traj_resampled_closest);
 
   // For the endpoint of the trajectory
+  // 再次确保终点速度为 0，限制轨迹速度不超过最大速度，防止超速，即使前面某个滤波/优化步骤出现数值问题，也不能发布超过全局最大速度的轨迹。
   if (!traj_smoothed.empty()) {
     traj_smoothed.back().longitudinal_velocity_mps = 0.0;
   }
 
-  // Max velocity filter for safety，再次确保终点速度为 0，限制轨迹速度不超过最大速度，防止超速
+  // Max velocity filter for safety，
   trajectory_utils::applyMaximumVelocityLimit(
     traj_resampled_closest, traj_smoothed.size(), node_param_.max_velocity, traj_smoothed);
 
-  // Insert behind velocity for output's consistency，填充最近点后方的速度值
+  // Insert behind velocity for output's consistency，会给后方点填速度。正常情况下，它会参考上一帧输出轨迹的速度；如果是首次、engage、偏差重规划等情况，则让后方点速度跟最近点一致，避免后方轨迹速度杂乱。
   insertBehindVelocity(traj_resampled_closest, type, traj_smoothed);
 
   RCLCPP_DEBUG(get_logger(), "smoothVelocity : traj_smoothed.size() = %lu", traj_smoothed.size());
@@ -1048,17 +1084,18 @@ void VelocitySmootherNode::applyExternalVelocityLimit(TrajectoryPoints & traj) c
   }
 
   trajectory_utils::applyMaximumVelocityLimit(
-    0, traj.size(), max_velocity_with_deceleration_, traj);
+    0, traj.size(), max_velocity_with_deceleration_, traj);  //所有都设置为max_velocity_with_deceleration_，因为这个已经是最高的，这是在 calcExternalVelocityLimit() 中计算出的"考虑减速能力后的最高速度"。只是设置了大于max_velocity_with_deceleration_的设回max_velocity_with_deceleration_，小于的保持不变
 
   // insert the point at the distance of external velocity limit
   const auto & current_pose = current_odometry_ptr_->pose.pose;
   const size_t closest_seg_idx =
     autoware::motion_utils::findFirstNearestSegmentIndexWithSoftConstraints(
       traj, current_pose, node_param_.ego_nearest_dist_threshold,
-      node_param_.ego_nearest_yaw_threshold);
+      node_param_.ego_nearest_yaw_threshold); //找到轨迹上距离自车最近的线段索引。不仅考虑欧氏距离，还考虑航向角差异.避免在 U 型转弯等场景下，错误地匹配到轨迹的另一端（虽然距离近但方向相反）。
   const auto inserted_index =
-    autoware::motion_utils::insertTargetPoint(closest_seg_idx, external_velocity_limit_.dist, traj);
+    autoware::motion_utils::insertTargetPoint(closest_seg_idx, external_velocity_limit_.dist, traj); //从自车当前位置向前推算的减速距离（在 calcExternalVelocityLimit() 中计算得出）对应的索引
   if (!inserted_index) {
+    // 如果减速距离超过了轨迹长度，无法在轨迹内插入点。将轨迹最后一个点的速度限制为外部限速值
     traj.back().longitudinal_velocity_mps = std::min(
       traj.back().longitudinal_velocity_mps, static_cast<float>(external_velocity_limit_.velocity));
     return;
@@ -1066,9 +1103,9 @@ void VelocitySmootherNode::applyExternalVelocityLimit(TrajectoryPoints & traj) c
 
   // apply external velocity limit from the inserted point
   trajectory_utils::applyMaximumVelocityLimit(
-    *inserted_index, traj.size(), external_velocity_limit_.velocity, traj);
+    *inserted_index, traj.size(), external_velocity_limit_.velocity, traj); // 从插入点开始，将后续所有轨迹点的速度上限设为 external_velocity_limit_.velocity
 
-  // create virtual wall
+  // create virtual wall，发布数据，速度为0时，发布虚拟墙
   if (std::abs(external_velocity_limit_.velocity) < 1e-3) {
     const auto virtual_wall_marker = autoware::motion_utils::createStopVirtualWallMarker(
       traj.at(*inserted_index).pose, external_velocity_limit_.sender, this->now(), 0,
@@ -1080,6 +1117,7 @@ void VelocitySmootherNode::applyExternalVelocityLimit(TrajectoryPoints & traj) c
     get_logger(), "externalVelocityLimit : limit_vel = %.3f", external_velocity_limit_.velocity);
 }
 
+// 这个函数会寻找轨迹中的第一个 0 速度点，也就是停车点。如果存在停车点，则在停车点前 stopping_distance 范围内，把速度限制到 stopping_velocity，让车辆接近停止线或障碍物停车点时更稳，不要高速冲到最后再急刹。
 void VelocitySmootherNode::applyStopApproachingVelocity(TrajectoryPoints & traj) const
 {
   autoware_utils_debug::ScopedTimeTrack st(__func__, *time_keeper_);

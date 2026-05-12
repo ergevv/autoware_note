@@ -104,7 +104,7 @@ AnalyticalJerkConstrainedSmoother::Param AnalyticalJerkConstrainedSmoother::getP
   return smoother_param_;
 }
 
-// v0                -> 当前自车速度
+// v0                -> 优先用上一帧平滑轨迹在当前 ego 位置的投影速度/加速度，当前自车速度
 // a0                -> 当前自车加速度
 // clipped           -> 从自车最近点开始裁剪后的前方轨迹
 // traj_smoothed     -> 输出的平滑后轨迹
@@ -139,7 +139,7 @@ bool AnalyticalJerkConstrainedSmoother::apply(
     return true;
   }
 
-  // 寻找低速点，前面速度在下降，后面速度又开始上升
+  // 寻找低速点，前面速度在下降，后面速度又开始上升,如果 v[i] 比前一个点低，而且后一个点又开始变高,说明 i 是一个局部低速点
   std::vector<std::pair<size_t, double>> decel_target_indices;
   searchDecelTargetIndices(input, closest_index, decel_target_indices);
   RCLCPP_DEBUG(logger_, "Num deceleration targets: %zd", decel_target_indices.size());
@@ -151,6 +151,7 @@ bool AnalyticalJerkConstrainedSmoother::apply(
   // Apply filters according to deceleration targets
   TrajectoryPoints reference_trajectory = input;
   TrajectoryPoints filtered_trajectory = input;
+  // 获取低点的速度和加速度
   for (size_t i = 0; i < decel_target_indices.size(); ++i) {
     size_t fwd_start_index;
     double fwd_start_vel;
@@ -166,24 +167,30 @@ bool AnalyticalJerkConstrainedSmoother::apply(
     }
 
     RCLCPP_DEBUG(logger_, "Apply forward jerk filter from: %ld", fwd_start_index);
-    // 从低速点开始，向前逐点积分
+    // 从低速点开始，向前逐点积分,从某个起点状态 (v, a) 出发，沿轨迹向前积分，把整个轨迹都处理完，使速度尽量跟上参考速度，但加速度和 jerk 受限
     applyForwardJerkFilter(
       reference_trajectory, fwd_start_index, fwd_start_vel, fwd_start_acc, smoother_param_,
-      filtered_trajectory);
+      filtered_trajectory); // 
 
+    // 为什么需要后向 decel filter,对每个低速目标，需要从目标点往前反推：从哪里开始减速，才能刚好以目标速度到达目标点。
+    // 当前 10 m/s
+    // 前方 20 m 停车
+    // 前向滤波还在尽量跟踪较高速度
+    // 到停车点前才发现来不及刹
     size_t bwd_start_index = closest_index;
     double bwd_start_vel = initial_vel;
     double bwd_start_acc = initial_acc;
-    for (int j = i; j >= 0; --j) {
+    for (int j = i; j >= 0; --j) { //根据前一个减速目标，向后走
       if (j == 0) {
         bwd_start_index = closest_index;
         bwd_start_vel = initial_vel;
         bwd_start_acc = initial_acc;
         break;
       }
-      if (decel_target_indices.at(j - 1).second < decel_target_indices.at(j).second) {
+      
+      if (decel_target_indices.at(j - 1).second < decel_target_indices.at(j).second) {  // 这里可能存在一个加速过程，因此需要判断是否需要减速
         bwd_start_index = decel_target_indices.at(j - 1).first;
-        bwd_start_vel = filtered_trajectory.at(bwd_start_index).longitudinal_velocity_mps;
+        bwd_start_vel = filtered_trajectory.at(bwd_start_index).longitudinal_velocity_mps; // 获取的是修改后的速度
         bwd_start_acc = filtered_trajectory.at(bwd_start_index).acceleration_mps2;
         break;
       }
@@ -191,12 +198,12 @@ bool AnalyticalJerkConstrainedSmoother::apply(
     std::vector<size_t> start_indices;
     if (bwd_start_index != fwd_start_index) {
       start_indices.push_back(bwd_start_index);
-      start_indices.push_back(fwd_start_index);
+      start_indices.push_back(fwd_start_index);  //bwd_start_index <= fwd_start_index
     } else {
       start_indices.push_back(bwd_start_index);
     }
 
-    const size_t decel_target_index = decel_target_indices.at(i).first;
+    const size_t decel_target_index = decel_target_indices.at(i).first;  // 这个点是前向积分处理的起点
     const double decel_target_vel = decel_target_indices.at(i).second;
     RCLCPP_DEBUG(
       logger_, "Apply backward decel filter from: %s, to: %ld (%f)",
@@ -238,6 +245,7 @@ bool AnalyticalJerkConstrainedSmoother::apply(
     start_acc = filtered_trajectory.at(start_index).acceleration_mps2;
   }
   RCLCPP_DEBUG(logger_, "Apply forward jerk filter from: %ld", start_index);
+  // 理最后一个减速目标之后的剩余轨迹；如果没有减速目标，它则负责处理整条轨迹。
   applyForwardJerkFilter(
     reference_trajectory, start_index, start_vel, start_acc, smoother_param_, filtered_trajectory);
 
@@ -303,6 +311,8 @@ TrajectoryPoints AnalyticalJerkConstrainedSmoother::applyLateralAccelerationFilt
   }
 
   // Interpolate with constant interval distance for lateral acceleration calculation.
+
+  // 重采样：后面曲率计算默认轨迹点间距是近似均匀的。若原始轨迹点间距不均匀，比如有的点隔 0.2 m，有的点隔 3 m，曲率计算会非常不稳定。
   const double points_interval = use_resampling ? 0.1 : input_points_interval;  // [m]
 
   TrajectoryPoints output;
@@ -321,6 +331,7 @@ TrajectoryPoints AnalyticalJerkConstrainedSmoother::applyLateralAccelerationFilt
     output = input;
   }
 
+  // 计算曲率：计算某个点曲率时，不是用相邻的前后 0.1 m 点，而是用相距约 5 m 的点。
   constexpr double curvature_calc_dist = 5.0;  // [m] calc curvature with 5m away points
   const size_t idx_dist =
     static_cast<size_t>(std::max(static_cast<int>((curvature_calc_dist) / points_interval), 1));
@@ -329,13 +340,31 @@ TrajectoryPoints AnalyticalJerkConstrainedSmoother::applyLateralAccelerationFilt
   const auto curvature_v = trajectory_utils::calcTrajectoryCurvatureFrom3Points(output, idx_dist);
 
   // Decrease speed according to lateral G
+  // 计算曲率限速影响范围，获取这个范围内最大的曲率，而不是只在曲率最大的地方限速
   const size_t before_decel_index =
     static_cast<size_t>(std::round(base_param_.decel_distance_before_curve / points_interval));
   const size_t after_decel_index =
     static_cast<size_t>(std::round(base_param_.decel_distance_after_curve / points_interval));
 
+  // 参数里面设置了不同速度使用不同的横向加速度限制
+  // 函数会计算每个速度区间两端的：
+  // a_lat_limit / v²
+  // 比如第一个区间 [0, 5]：
+
+  // v = 0:  1.0 / 0²   很大，代码里用 epsilon 防止除 0
+  // v = 5:  1.0 / 25 = 0.04
+  // 第二个区间 [5, 10]：
+
+  // v = 5:   0.8 / 25  = 0.032
+  // v = 10:  0.8 / 100 = 0.008
+  // 第三个区间 [10, 20]：
+
+  // v = 10:  0.6 / 100 = 0.006
+  // v = 20:  0.6 / 400 = 0.0015
+  // 这些值都是“允许曲率边界”。
+
   const auto lateral_acceleration_velocity_square_ratio_limits =
-    computeLateralAccelerationVelocitySquareRatioLimits();
+    computeLateralAccelerationVelocitySquareRatioLimits(); // 参数是工程测试出来的？速度越快，横向加速度越小，避免车子失控
 
   std::vector<int> filtered_points;
   for (size_t i = 0; i < output.size(); ++i) {
@@ -347,14 +376,16 @@ TrajectoryPoints AnalyticalJerkConstrainedSmoother::applyLateralAccelerationFilt
     }
     double v_curvature_max = computeVelocityLimitFromLateralAcc(
       curvature, lateral_acceleration_velocity_square_ratio_limits);
-    v_curvature_max = std::max(v_curvature_max, base_param_.min_curve_velocity);
+    v_curvature_max = std::max(v_curvature_max, base_param_.min_curve_velocity);  // v_curvature_max可能为0的，保证最小是min_curve_velocity
     if (output.at(i).longitudinal_velocity_mps > v_curvature_max) {
       output.at(i).longitudinal_velocity_mps = v_curvature_max;
-      filtered_points.push_back(i);
+      filtered_points.push_back(i); //如果这个点被限速了，就把索引记到 filtered_points，后面用于“转弯时保持恒定速度”。
     }
   }
 
   // Keep constant velocity while turning
+  // 把相邻限速点合并成转弯区间,如果当前限速点和上一个限速点距离小于阈值，就认为它们属于同一个弯道区域。如果距离超过阈值，就认为进入了另一个弯道，关闭上一段区间，开启新区间。因为仅按曲率逐点限速，速度可能会这样变化: 3.8 -> 3.4 -> 3.1 -> 3.3 -> 3.7,车辆过弯过程中会轻微加减速，影响舒适性，也可能引入纵向控制抖动。恒速过弯后变成：3.1 -> 3.1 -> 3.1 -> 3.1 -> 3.1,更符合实际驾驶：进弯前减速，弯中保持稳定速度，出弯后再加速。
+
   const double dist_threshold = smoother_param_.latacc.constant_velocity_dist_threshold;
   std::vector<std::tuple<size_t, size_t, double>> latacc_filtered_ranges;
   size_t start_index = 0;
@@ -449,6 +480,8 @@ bool AnalyticalJerkConstrainedSmoother::searchDecelTargetIndices(
   return true;
 }
 
+
+// 在 jerk/acc 限制下，尽量向参考速度上限靠近,适合处理加速、正常跟踪，但不能保证前方停车点一定能刹住，所以还需要后向减速滤波。
 bool AnalyticalJerkConstrainedSmoother::applyForwardJerkFilter(
   const TrajectoryPoints & base_trajectory, const size_t start_index, const double initial_vel,
   const double initial_acc, const Param & params, TrajectoryPoints & output_trajectory) const
@@ -481,6 +514,13 @@ bool AnalyticalJerkConstrainedSmoother::applyForwardJerkFilter(
 
   return true;
 }
+// 已知前方某点 decel_target_index 的目标速度 decel_target_vel，
+// 从哪些候选 start_index 开始减速？
+// 用多大的负 jerk？
+// 需要多少距离？
+// 距离够不够？
+// 如果够，把这段速度曲线写回 output_trajectory。
+
 
 bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
   const std::vector<size_t> & start_indices, const size_t decel_target_index,
@@ -494,16 +534,23 @@ bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
   int output_type;
   std::vector<double> output_times;
 
+  // start_indices:
+  //   closest_index
+  //   上一个减速目标点
+  //   本轮前向滤波起点
+// 为什么可能有多个？因为多个低速目标连续出现时，不一定应该从当前最近点开始减速，也可能从上一个低速区间之后开始处理。
   for (size_t start_index : start_indices) {
     double dist = 0.0;
     std::vector<double> dist_to_target(output_trajectory.size(), 0);
     dist_to_target.at(decel_target_index) = dist;
+    // 找到速度超出目标速度的索引
     for (size_t i = start_index; i < decel_target_index; ++i) {
       if (output_trajectory.at(i).longitudinal_velocity_mps >= decel_target_vel) {
         start_index = i;
         break;
       }
     }
+    // 计算每个点到目标点的距离
     for (size_t i = decel_target_index; i > start_index; --i) {
       dist += autoware_utils_geometry::calc_distance2d(
         output_trajectory.at(i - 1), output_trajectory.at(i));
@@ -517,7 +564,7 @@ bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
     double stop_dist;
     bool is_enough_dist = false;
     for (planning_jerk = params.backward.start_jerk; planning_jerk > params.backward.min_jerk - ep;
-         planning_jerk += params.backward.span_jerk) {
+         planning_jerk += params.backward.span_jerk) { //尝试不同 jerk，优先使用温和的减速
       if (calcEnoughDistForDecel(
             output_trajectory, start_index, decel_target_vel, planning_jerk, params, dist_to_target,
             is_enough_dist, type, times, stop_dist)) {
@@ -525,11 +572,13 @@ bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
       }
     }
 
+    //如果所有 jerk 都不够,说明从这个候选起点出发，哪怕用最强允许 jerk 也刹不住，于是换下一个候选起点。
     if (!is_enough_dist) {
       RCLCPP_DEBUG(logger_, "Distance is not enough for decel with all jerk condition");
       continue;
     }
 
+    // 选择最温和的 Jerk
     if (planning_jerk >= output_planning_jerk) {
       output_planning_jerk = planning_jerk;
       output_start_index = start_index;
@@ -551,6 +600,7 @@ bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
 
   RCLCPP_DEBUG(logger_, "Search decel start index");
   size_t decel_start_index = output_start_index;
+  // 如果计算的 jerk 是最温和的 start_jerk，说明减速能力比较充足。此时它会尝试把减速起点往后推，找一个最晚还能刹住的位置。所以这里从目标点前一个点往回搜索，找到第一个距离足够的位置就停下。这一步只在 output_planning_jerk == start_jerk 时做，是因为如果已经需要更强 jerk，说明减速余量不大，再往后推可能不稳。
   if (output_planning_jerk == params.backward.start_jerk) {
     for (size_t i = decel_target_index - 1; i >= output_start_index; --i) {
       bool is_enough_dist = false;
@@ -570,6 +620,7 @@ bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
     "planning_jerk: %f, type: %d, times: %s",
     decel_start_index, decel_target_vel, output_planning_jerk, output_type,
     strTimes(output_times).c_str());
+    // 真正把速度/加速度写入 output_trajectory。
   if (!applyDecelVelocityFilter(
         decel_start_index, decel_target_vel, output_planning_jerk, params, output_type,
         output_times, output_trajectory)) {
@@ -581,6 +632,17 @@ bool AnalyticalJerkConstrainedSmoother::applyBackwardDecelFilter(
 
   return true;
 }
+// 判断从某个轨迹点 start_index 开始，用给定的负 jerk planning_jerk 减速，能不能在到达目标点之前降到 decel_target_vel。
+// 当前点状态 v0, a0
+// 目标速度 decel_target_vel
+// 给定 jerk / 最小加速度约束
+//       ↓
+// 计算所需减速距离 stop_dist
+//       ↓
+// 和可用距离 allowed_dist 比较
+//       ↓
+// 距离够：返回 true，并输出 type/times/stop_dist
+// 距离不够：返回 false
 
 bool AnalyticalJerkConstrainedSmoother::calcEnoughDistForDecel(
   const TrajectoryPoints & trajectory, const size_t start_index, const double decel_target_vel,
@@ -592,6 +654,9 @@ bool AnalyticalJerkConstrainedSmoother::calcEnoughDistForDecel(
   const double jerk_acc = std::abs(planning_jerk);
   const double jerk_dec = planning_jerk;
   auto calcMinAcc = [&params](const double planning_jerk) {
+    // 温和 jerk 能解决 -> 使用温和减速度
+    // 需要强 jerk       -> 允许更大减速度
+
     if (planning_jerk < params.backward.min_jerk_mild_stop) {
       return params.backward.min_acc;
     }
@@ -606,6 +671,12 @@ bool AnalyticalJerkConstrainedSmoother::calcEnoughDistForDecel(
         v0, a0, jerk_acc, jerk_dec, min_acc, decel_target_vel, type, times, stop_dist)) {
     return false;
   }
+// 按照当前 v0/a0、给定 jerk、给定 min_acc，
+// 减速到目标速度需要 stop_dist 米。
+
+// 如果目标点距离当前点有 allowed_dist 米，
+// 并且 stop_dist 不超过 allowed_dist，
+// 那么来得及减速。
 
   const double allowed_dist = dist_to_target.at(start_index);
   if (0.0 <= stop_dist && stop_dist <= allowed_dist) {
