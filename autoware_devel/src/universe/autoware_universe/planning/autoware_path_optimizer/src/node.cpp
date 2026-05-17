@@ -407,24 +407,30 @@ std::vector<TrajectoryPoint> PathOptimizer::optimizeTrajectory(const PlannerData
   is_optimization_failed_ = false;
   const auto & p = planner_data;
 
-  // 判断是否需要重新规划
-  // 如果需要重置之前的优化或检测到需要重规划的条件，则执行完整优化
-  // 否则复用之前的优化结果以提高效率
+  // 判断上一帧优化轨迹是否还能复用。这里有两层判断：
+  // 1. reset + replan：上一帧优化状态已经不可靠，例如首次运行、车身附近路径/目标点变化、
+  //    或自车位姿相对上一帧跳变过大。此时需要清空 MPT 内部缓存，避免继续使用不兼容的
+  //    fixed-point 约束或 warm-start 初值。
+  // 2. replan without reset：上一帧优化状态仍然兼容，但由于时间间隔足够长或前方路径形状变化，
+  //    需要重新优化一次。此时保留上一帧数据，用于维持轨迹连续性。
+  // 如果两者都不需要，则直接返回上一帧优化轨迹，减少 QP 计算并保持输出稳定。
   const bool is_replan_required = [&]() {
-    const bool reset_prev_optimization = replan_checker_ptr_->isResetRequired(planner_data);
+    const bool reset_prev_optimization = replan_checker_ptr_->isResetRequired(planner_data); //比较当前自车位置相对上一帧路径和当前路径的横向偏移差。目标点改变时，只在自车接近停止时判断，比较当前路径末点和上一帧路径末点的距离，需要重设。比较当前 ego_pose 和上一帧保存的 ego_pose太大也重设
     if (enable_reset_prev_optimization_ || reset_prev_optimization) {
-      // NOTE: always replan when resetting previous optimization
+      // reset 会使缓存优化轨迹失效，因此必须重新优化。
       resetPreviousData();
       return true;
     }
-    // check replan when not resetting previous optimization
+    // 上一帧数据仍可用，只检查是否触发普通重规划条件。它会从上一帧路径上，沿自车前方每隔 10m 取一个点，然后看这个“上一帧前方点”落到当前路径上时，横向偏移有多大，最多检查前方 100m，每 10m 一个点；如果上一帧路径上的前方点相对当前路径横向偏差超过 0.1m，就 replan
     return replan_checker_ptr_->isReplanRequired(planner_data, now());
   }();
+  // 更新 replan checker 的历史输入；只有本轮确实重规划时才刷新 last-replan 时间戳。
   replan_checker_ptr_->updateData(planner_data, is_replan_required, now());
   if (!is_replan_required) {
     return getPrevOptimizedTrajectory(p.traj_points);
   }
 
+  // 调试/参数开关：保留上面的重规划状态更新，但跳过 MPT 优化本身。
   if (enable_skip_optimization_) {
     return p.traj_points;
   }

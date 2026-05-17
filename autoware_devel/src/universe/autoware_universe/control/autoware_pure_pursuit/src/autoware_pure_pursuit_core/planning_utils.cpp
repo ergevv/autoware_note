@@ -73,18 +73,68 @@ double calcLateralError2D(
   double lat_err = (a_vec.length() > 0) ? a_vec.cross(b_vec).z() / a_vec.length() : 0.0;
   return lat_err;
 }
+// 根据当前车辆位姿 current_pose 和 Pure Pursuit 选出的前瞻目标点 target，计算车辆如果沿圆弧到达该目标点，所需要的圆弧半径 R。
+// target 在车辆坐标系下的位置 = (x, y)
+// 车辆当前位置 = (0, 0)
+// 车辆朝向 = x 轴方向
+// 圆弧在当前位置与车辆朝向相切
+// 圆心位于 y 轴上
+// x^2 + y^2 = 2 * R * y
+// R = (x^2 + y^2) / (2 * y)
 
 double calcRadius(
   const geometry_msgs::msg::Point & target, const geometry_msgs::msg::Pose & current_pose)
 {
+  // 近似直行时半径趋近无穷大，用一个足够大的数表示，避免除以 0。
   constexpr double RADIUS_MAX = 1e9;
-  //transformToRelativeCoordinate2D计算target点在current_pose坐标系下的坐标，current_pose的朝向为x轴，车辆的朝向是x轴，并且这个朝向与圆相切，因此目标点 B 的横向距离其实就是弦长 $L$ 在 Y 轴上的投影
-  const double denominator = 2 * transformToRelativeCoordinate2D(target, current_pose).y;
+
+  // 将目标点转换到车辆坐标系：x 轴为车辆当前朝向，y 轴为车辆左侧方向。
+  const auto relative_target = transformToRelativeCoordinate2D(target, current_pose);
+
+  // Pure Pursuit 假设车辆从当前位姿沿圆弧到达目标点，且当前朝向与圆弧相切。
+  // 在车辆坐标系下，目标点为 (x, y)，圆心位于 y 轴上，可由几何关系推出：
+  // x^2 + y^2 = 2 * R * y，因此 R = (x^2 + y^2) / (2 * y)。
+  // y 的正负决定半径符号，也就决定后续曲率对应左转还是右转。
+
+  /*
+  推导：
+
+  把车辆当前位置放在车辆坐标系原点 (0, 0)，车辆朝向是 x 轴。Pure Pursuit 假设车辆从当前位置沿圆弧到达目标点 (x, y)，并且当前位置的车辆朝向与圆弧相切。
+
+  因为圆弧在原点处的切线是 x 轴，所以圆心一定在 y 轴上。设圆心为：
+
+  O = (0, R)
+  圆半径就是 R。
+
+  目标点 (x, y) 在这个圆上，所以它到圆心的距离等于半径：
+
+  (x - 0)^2 + (y - R)^2 = R^2
+  展开：
+
+  x^2 + y^2 - 2Ry + R^2 = R^2
+  两边消掉 R^2：
+
+  x^2 + y^2 - 2Ry = 0
+  移项：
+
+  x^2 + y^2 = 2Ry
+  也就是代码注释里的：
+
+  x^2 + y^2 = 2 * R * y
+  所以：
+
+  R = (x^2 + y^2) / (2y)
+  直观理解：x^2 + y^2 是车辆到目标点的距离平方，y 是目标点相对车辆的横向偏移。目标点越靠正前方，y 越小，半径越大，车辆越接近直行；目标点横向偏移越明显，半径越小，车辆转弯越急。
+    
+    
+  */
+  const double denominator = 2 * relative_target.y;
   const double numerator = calcDistSquared2D(target, current_pose.position);
 
   if (fabs(denominator) > 0) {
     return numerator / denominator;
   } else {
+    // 目标点几乎在车辆 x 轴上时，所需圆弧半径无限大，等价于曲率接近 0 的直行。
     return RADIUS_MAX;
   }
 }
