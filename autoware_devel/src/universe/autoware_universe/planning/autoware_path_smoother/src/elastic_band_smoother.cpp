@@ -151,25 +151,34 @@ void ElasticBandSmoother::resetPreviousData()
   prev_optimized_traj_points_ptr_ = nullptr;
 }
 
+/**
+ * @brief 平滑输入路径，并发布轨迹和路径两种输出。
+ *
+ * 该回调将几何平滑、速度恢复、路径延展和消息发布拆成独立步骤，
+ * 让 Elastic Band 优化器只负责局部路径形状优化。
+ */
 void ElasticBandSmoother::onPath(const Path::ConstSharedPtr path_ptr)
 {
+  // 为本次回调初始化计时日志，并开始统计整个 onPath 流程耗时。
   time_keeper_ptr_->init();
   time_keeper_ptr_->tic(__func__);
 
-  // check if data is ready and valid
+  // 取出最新自车里程计；路径平滑需要当前自车位姿和速度。
   const auto ego_state_ptr = odom_sub_.take_data();
+  // 如果必要输入缺失，或路径点/边界信息不足，则提前结束本次处理。
   if (!isDataReady(*path_ptr, ego_state_ptr, *get_clock())) {
     return;
   }
 
-  // 0. return if path is backward
-  // TODO(murooka): support backward path
+  // 0. 如果输入路径是倒车方向，则不执行 Elastic Band 平滑。
+  // TODO(murooka): 支持倒车路径。
   const auto is_driving_forward = driving_direction_checker_.isDrivingForward(path_ptr->points);
   if (!is_driving_forward) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 5000,
       "Backward path is NOT supported. Just converting path to trajectory");
 
+    // 当前 Elastic Band 优化器只适用于前进路径，因此这里直接发布透传结果。
     const auto traj_points = trajectory_utils::convertToTrajectoryPoints(path_ptr->points);
     const auto output_traj_msg =
       autoware::motion_utils::convertToTrajectory(traj_points, path_ptr->header);
@@ -179,52 +188,60 @@ void ElasticBandSmoother::onPath(const Path::ConstSharedPtr path_ptr)
     return;
   }
 
+  // 将 PathPoint 转为 TrajectoryPoint，作为平滑器和速度处理工具的统一内部格式。
   const auto input_traj_points = trajectory_utils::convertToTrajectoryPoints(path_ptr->points);
 
-  // 1. calculate trajectory with Elastic Band
-  // 1.a check if replan (= optimization) is required
+  // 1. 使用 Elastic Band 计算平滑轨迹。
+  // 1.a 判断是否需要重新规划，也就是是否需要重新执行优化。
+  // PlannerData 保存本次输入路径、自车位姿和自车速度，供重规划判断使用。
   PlannerData planner_data(
     input_traj_points, ego_state_ptr->pose.pose, ego_state_ptr->twist.twist.linear.x);
   const bool is_replan_required = [&]() {
     if (replan_checker_ptr_->isResetRequired(planner_data)) {
-      // NOTE: always replan when resetting previous optimization
+      // NOTE: 重置上一轮优化结果时，必须重新执行优化。
       resetPreviousData();
       return true;
     }
-    // check replan when not resetting previous optimization
+    // 如果路径或时间变化不大，则复用上一轮优化得到的几何形状。
     return !prev_optimized_traj_points_ptr_ ||
            replan_checker_ptr_->isReplanRequired(planner_data, now());
   }();
+  // 保存当前输入；如果本轮重新优化，也同步更新上次重规划时间。
   replan_checker_ptr_->updateData(planner_data, is_replan_required, now());
+
+  // 单独统计局部平滑耗时，便于和整个回调耗时区分。
   time_keeper_ptr_->tic(__func__);
+  // 只有需要重规划时才运行 Elastic Band，否则直接复用缓存的优化结果。
   auto smoothed_traj_points = is_replan_required ? eb_path_smoother_ptr_->smoothTrajectory(
                                                      input_traj_points, ego_state_ptr->pose.pose)
                                                  : *prev_optimized_traj_points_ptr_;
   time_keeper_ptr_->toc(__func__, "    ");
 
+  // 先缓存局部优化后的几何形状，后续速度恢复和路径延展不会影响该缓存语义。
   prev_optimized_traj_points_ptr_ =
     std::make_shared<std::vector<TrajectoryPoint>>(smoothed_traj_points);
 
-  // 2. update velocity
+  // 2. 将输入路径的速度分布恢复到平滑后的几何轨迹上。
   applyInputVelocity(smoothed_traj_points, input_traj_points, ego_state_ptr->pose.pose);
 
-  // 3. extend trajectory to connect the optimized trajectory and the following path smoothly
+  // 3. 将优化后的局部轨迹与后续原始路径平滑连接，形成完整输出。
   auto full_traj_points = extendTrajectory(input_traj_points, smoothed_traj_points);
 
-  // 4. set zero velocity after stop point
+  // 4. 即使经过插值和重采样，也保证第一个停车点之后的速度全部为 0。
   setZeroVelocityAfterStopPoint(full_traj_points);
 
   time_keeper_ptr_->toc(__func__, "");
   *time_keeper_ptr_ << "========================================";
   time_keeper_ptr_->endLine();
 
-  // publish calculation_time
-  // NOTE: This function must be called after measuring onPath calculation time
+  // 发布计算耗时。
+  // NOTE: 必须在 onPath 总耗时统计结束后再生成该调试消息。
   const auto calculation_time_msg = createStringStamped(now(), time_keeper_ptr_->getLog());
   debug_calculation_time_str_pub_->publish(calculation_time_msg);
   debug_calculation_time_float_pub_->publish(
     createFloat64Stamped(now(), time_keeper_ptr_->getAccumulatedTime()));
 
+  // 使用原始 header 发布平滑后的轨迹，以及由该轨迹生成的 Path 消息。
   const auto output_traj_msg =
     autoware::motion_utils::convertToTrajectory(full_traj_points, path_ptr->header);
   traj_pub_->publish(output_traj_msg);

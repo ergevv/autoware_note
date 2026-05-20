@@ -21,6 +21,7 @@ vehicle_cmd_gate 订阅 transition_manager 发布的 OperationModeState，如何
 什么时候可以切换模式
 
 *4、autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
+Pure Pursuit: autoware_devel/src/universe/autoware_universe/control/autoware_pure_pursuit/src/autoware_pure_pursuit/autoware_pure_pursuit_lateral_controller.cpp
 根据参考轨迹计算车辆的横向（转向）和纵向（速度/加速度）控制命令
 横向控制：MPC、Pure Pursuit
 | 特性 | Pure Pursuit (纯跟踪) | MPC (模型预测控制) |
