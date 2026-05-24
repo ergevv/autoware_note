@@ -1,3 +1,4 @@
+
 参考：ChatGPT、autoware
 
 # 自动驾驶速度平滑教程：从运动约束到解析 Jerk 受限速度规划
@@ -704,16 +705,14 @@ $$
 然后对加速度限幅：
 
 $$
-a_{\mathrm{lim},i}
-=
+a_{\mathrm{lim},i}=
 \mathrm{clip}(a_{\mathrm{fb},i},\ a_{\min},\ a_{\max})
 $$
 
 由上一点加速度到目标加速度，对应 jerk 为：
 
 $$
-j_{\mathrm{fb},i}
-=
+j_{\mathrm{fb},i}=
 \frac{a_{\mathrm{lim},i}-a_{i-1}}{\Delta t_i}
 $$
 

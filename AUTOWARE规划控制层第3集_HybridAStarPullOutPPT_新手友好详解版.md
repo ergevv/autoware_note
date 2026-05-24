@@ -6,6 +6,12 @@ size: 16:9
 footer: "Autoware 规划与控制层教程 | 第 3 集 | 新手友好详解版"
 ---
 
+# 对应源码文件: 
+autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_start_planner_module/src/freespace_pull_out.cpp
+
+---
+
+
 <!--
 用途说明：
 这是一份第 3 集的 PPT 制作稿，采用 Marp Markdown 格式。

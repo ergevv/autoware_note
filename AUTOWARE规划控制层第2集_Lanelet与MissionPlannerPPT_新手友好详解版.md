@@ -3,8 +3,14 @@ marp: true
 theme: default
 paginate: true
 size: 16:9
-footer: "Autoware 规划与控制层教程 | 第 2 集 | 新手友好详解版"
+footer: "Autoware 规划与控制层教程 | 第 2 集 | Mission Planner"
 ---
+
+# 对应源码文件: 
+autoware_devel/src/universe/autoware_universe/planning/autoware_mission_planner_universe/src/mission_planner/mission_planner.cpp
+
+---
+
 
 <!--
 用途说明：
@@ -678,7 +684,7 @@ $$
 <!--
 讲解备注：
 这里不用深入地图投影数学，只要让观众知道为什么不能直接拿 lat/lon 算欧氏距离。
-
+最简单的投影是：取其中一个为原点，根据相对位置建立地图，具体代码是怎么投影的，我忘记了，不过无伤大雅
 配图建议：
 一张地球经纬度网格转换到局部 x-y 坐标系的示意图。
 -->
@@ -1060,6 +1066,8 @@ LaneletMap
 讲解备注：
 这是 Mission Planner 的主流程图。后面每一页解释其中一个步骤。
 
+route sections: preferred_primitive 是主路径上的 lanelet，而 primitives 是该横向切片中被路线走廊允许使用的 lanelet 集合。
+
 配图建议：
 竖向流程图，每个步骤一个方块。
 -->
@@ -1097,6 +1105,16 @@ LaneletMap
 讲解备注：
 每讲一个重要模块，都用输入、输出、为什么需要、边界四件事固定住。
 这会显著降低新手学习门槛。
+
+这里的 route sections 可以理解成“把整条 route 切成一段段车道级走廊”：
+每个 section 里有一个 preferred_primitive，表示主路线推荐走的 lanelet；
+同时还有 primitives，表示这个纵向切片里下游局部规划允许使用的 lanelet 集合。
+所以它不是一条单独的中心线，而是一组按道路前进方向排列的可行驶车道范围。
+
+route state 可以理解成 Mission Planner 对当前路线生命周期的状态说明：
+例如路线是否已经设置、是否可用、是否到达目标、是否需要重新规划或清除。
+下游模块和外部接口不只需要 route 几何本身，还需要知道“这条 route 现在处于什么状态”，
+否则就分不清是还没收到路线、路线无效，还是车辆已经完成任务。
 
 配图建议：
 中间 Mission Planner 方块，左侧输入，右侧输出，下方写职责边界。

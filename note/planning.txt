@@ -38,6 +38,7 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launc
 （1）StaticObstacleAvoidanceModuleManager，autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_static_obstacle_avoidance_module/src/manager.cpp。
     slot1:
       - "start_planner"
+      autoware_devel/src/universe/autoware_universe/planning/behavior_path_planner/autoware_behavior_path_start_planner_module/src/freespace_pull_out.cpp
     slot2:
       - "side_shift"
       - "avoidance_by_lane_change"
@@ -65,7 +66,7 @@ autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launc
 实现了一个基于矢量地图（Vector Map）特定区域过滤点云的 ROS 2 节点组件。其主要功能是剔除位于矢量地图指定多边形区域内部的点云数据（例如剔除地面、建筑物或特定感兴趣区域内的点）。
 
 autoware_devel/src/universe/autoware_universe/launch/tier4_planning_launch/launch/scenario_planning/lane_driving/motion_planning/motion_planning.launch.xml
-*10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp（待学）
+*10、autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp
 实现了基于弹性带（Elastic Band）算法的路径平滑器 ROS 2 节点组件。其主要功能是对规划路径进行横向的平滑优化，生成可执行的平滑轨迹。
 
 对比项	PathOptimizer (node.cpp)	ElasticBandSmoother

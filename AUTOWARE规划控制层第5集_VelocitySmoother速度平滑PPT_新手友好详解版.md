@@ -6,6 +6,12 @@ size: 16:9
 footer: "Autoware 规划与控制层教程 | 第 5 集 | 新手友好详解版"
 ---
 
+
+# 对应源码文件: 
+autoware_devel/src/core/autoware_core/planning/autoware_velocity_smoother/src/node.cpp
+
+---
+
 <!--
 用途说明：
 这是一份第 5 集的 PPT 制作稿，采用 Marp Markdown 格式。

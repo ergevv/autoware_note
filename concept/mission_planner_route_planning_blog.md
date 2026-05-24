@@ -1,3 +1,4 @@
+参考来源：ChatGPT、autoware
 # 从起点到目标点：自动驾驶车道级路线规划教程
 
 自动驾驶里的“路线规划”很容易被误解成“画一条能开的曲线”。实际上，在完整的规划栈里，它通常做的是更高一层的事情：根据车辆当前位置、目标点和静态高精地图，找出车辆应该经过哪些车道、允许在哪些相邻车道内行驶，并把这个车道级结果交给后续的行为规划、路径规划和控制模块。
@@ -690,8 +691,7 @@ $$
 最后，路线段并不是直接按 $\mathcal{R}$ 平铺输出。系统会重新得到一条主 lanelet 序列，然后对每个主 lanelet $\ell_i$ 取其所有同向邻居，再只保留属于 $\mathcal{R}$ 的那些：
 
 $$
-\operatorname{Section}(\ell_i)
-=
+\operatorname{Section}(\ell_i)=
 \{\ell\mid \ell\in\operatorname{AllNeighbors}(\ell_i),\ id(\ell)\in\mathcal{R}\}
 $$
 

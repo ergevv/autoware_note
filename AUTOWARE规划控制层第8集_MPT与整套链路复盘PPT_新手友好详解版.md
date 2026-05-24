@@ -6,6 +6,12 @@ size: 16:9
 footer: "Autoware 规划与控制层教程 | 第 8 集 | 新手友好详解版"
 ---
 
+# 对应源码文件: 
+
+autoware_devel/src/universe/autoware_universe/planning/autoware_path_optimizer/src/node.cpp
+
+---
+
 <!--
 用途说明：
 这是一份第 8 集的 PPT 制作稿，采用 Marp Markdown 格式。

@@ -6,6 +6,15 @@ size: 16:9
 footer: "Autoware 规划与控制层教程 | 第 6 集 | 新手友好详解版"
 ---
 
+
+# 对应源码文件: 
+autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
+
+Pure Pursuit: autoware_devel/src/universe/autoware_universe/control/autoware_pure_pursuit/src/autoware_pure_pursuit/autoware_pure_pursuit_lateral_controller.cpp
+
+---
+
+
 <!--
 用途说明：
 这是一份第 6 集的 PPT 制作稿，采用 Marp Markdown 格式。
