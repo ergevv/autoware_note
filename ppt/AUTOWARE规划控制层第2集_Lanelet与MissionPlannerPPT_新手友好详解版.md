@@ -31,8 +31,6 @@ marp AUTOWARE规划控制层第2集_Lanelet与MissionPlannerPPT.md --pptx
 
 ## 从地图车道图到车道级 Route
 
-### 新手友好详解版
-
 ```text
 Goal + Current Pose + Lanelet Map
         ->
@@ -48,22 +46,6 @@ Lane-level Route
 左侧画一张道路高精地图，右侧画被高亮的一串车道 route。
 -->
 
----
-
-# 新手友好版怎么使用
-
-本版不是精简版，而是：
-
-- 保留原有知识点
-- 把术语第一次出现时讲清楚
-- 把公式拆成“意义、符号、工程作用”
-- 在章节之间增加过渡页
-- 在难点后面补常见疑问
-
-```text
-目标：让第一次接触 Autoware 规划的人，
-也能知道每一步为什么存在。
-```
 
 <!--
 讲解备注：
@@ -1131,6 +1113,7 @@ route state 可以理解成 Mission Planner 对当前路线生命周期的状态
 - Lanelet 地图
 - 车辆尺寸和参数
 - 路线状态与旧路线
+
 输出：
 - Route
 - Route Sections
@@ -2996,36 +2979,3 @@ Mission Planner 的核心：
 
 ---
 
-# 下一次给 Codex 的指令
-
-继续优化课程时，直接输入：
-
-```text
-请执行优化任务 4：
-在不覆盖原文件的前提下，
-根据 AUTOWARE规划控制层课程总索引.md、
-AUTOWARE规划控制层第3集_HybridAStarPullOutPPT.md、
-concept/hybrid_astar_freespace_pull_out_algorithm_blog.md、
-concept/start_planner_module_algorithm_blog.md 和 concept/shift_pull_out_algorithm_blog.md，
-生成 AUTOWARE规划控制层第3集_HybridAStarPullOutPPT_新手友好详解版.md。
-
-要求：
-1. 不精简内容，不删除关键知识点；
-2. 在原 PPT 主线基础上增强新手可理解性；
-3. 每个核心概念第一次出现时补充通俗解释；
-4. 每个公式都补充：物理意义、符号解释、工程作用；
-5. 每个重要模块都说明：输入、输出、为什么需要它；
-6. 增加必要的过渡页、类比页、常见疑问页；
-7. 每页仍包含页面展示内容、讲解备注、配图建议；
-8. 输出到项目根目录，不覆盖原文件；
-9. 任务完成后，给出下一次任务的指令。
-```
-
-<!--
-讲解备注：
-这一页不一定放进公开视频里，它是给你自己继续制作课程用的。
-如果正式录课，可以删除这一页。
-
-配图建议：
-不需要配图。
--->

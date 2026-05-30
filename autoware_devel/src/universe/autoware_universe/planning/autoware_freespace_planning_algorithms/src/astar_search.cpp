@@ -142,29 +142,52 @@ void AstarSearch::resetData()
   shifted_goal_pose_ = {};
 }
 
+/// @brief Hybrid A* 单目标规划入口：从一个起点位姿搜索到一个目标位姿。
+/// @param start_pose 全局坐标系下的搜索起点，通常是当前车辆位姿。
+/// @param goal_pose 全局坐标系下的搜索目标，通常是道路中心线上的回归位姿。
+/// @return 搜索成功返回 true；起终点非法或搜索失败时抛出异常。
+///
+/// 这个函数负责搭建一次 Hybrid A* 搜索的上下文：
+/// 1. 清空上一次搜索留下的 open list、节点图、启发距离图等临时数据。
+/// 2. 将起点和终点从全局坐标系转换到 costmap 局部坐标系。
+/// 3. 检查起点和终点的完整车身矩形是否与障碍物或地图边界碰撞。
+/// 4. 根据配置决定是否交换起终点，进入反向搜索模式。
+/// 5. 构建从目标出发的二维自由空间距离图，作为启发函数的一部分。
+/// 6. 创建起点节点并放入 open list。
+/// 7. 运行 A* 主循环，成功后内部会生成 waypoints_。
 bool AstarSearch::makePlan(const Pose & start_pose, const Pose & goal_pose)
 {
+  // 每次规划都是一次独立搜索，必须清空上一轮 open list、graph_ 和启发距离图。
   resetData();
 
+  // costmap 自带 origin。Hybrid A* 在 costmap 局部坐标系中搜索，先做坐标变换。
   start_pose_ = global2local(costmap_, start_pose);
   goal_pose_ = global2local(costmap_, goal_pose);
 
+  // 起点或终点本身发生碰撞时，后续搜索没有意义，直接认为输入非法。这里不是只检查一个点，而是检查车辆矩形 footprint 是否碰撞。如果起点或终点已经撞障碍物、越界、进入不可通行区域，就直接抛异常。
   if (detectCollision(start_pose_) || detectCollision(goal_pose_)) {
     throw std::logic_error("Invalid start or goal pose");
   }
 
+  // 反向搜索会从目标往起点扩展。几何路径最终仍会在 setPath() 中整理回执行顺序。
   if (is_backward_search_) std::swap(start_pose_, goal_pose_);
 
+  // 从 goal_pose_ 开始在二维栅格上扩散，得到每个格子到目标的无碰撞近似距离。
+  // estimateCost() 会把这个距离与 Reeds-Shepp 距离结合，形成 Hybrid A* 启发函数。
   setCollisionFreeDistanceMap();
 
+  // 当前重载只处理单目标；多目标版本会把该标志置为 true 并维护 alternate_goals_。
   is_multiple_goals_ = false;
 
+  // 将 start_pose_ 离散成 (x, y, theta) 索引，创建第一个 AstarNode 并放入 open list。
   setStartNode();
 
+  // 执行 A* 主循环：不断弹出总代价 fc 最小的节点，扩展运动原语，直到到达目标。
   if (!search()) {
     throw std::logic_error("HA* failed to find path to goal");
   }
 
+  // search() 成功时已经通过 setPath() 回溯父节点，并写入 waypoints_。
   return true;
 }
 
@@ -218,22 +241,42 @@ bool AstarSearch::makePlan(
   return true;
 }
 
+/// @brief 从目标点反向计算二维自由空间距离图，作为 Hybrid A* 启发函数的一部分。
+///
+/// col_free_distance_map_[id] 表示：在二维 costmap 上，从某个栅格到目标栅格的近似最短
+/// 无碰撞距离。这里使用的是 Dijkstra 风格的传播：
+/// - 从 goal_pose_ 对应的二维栅格开始，距离为 0。
+/// - 向 8 邻域扩展。
+/// - 障碍物、越界格子、离障碍物太近的格子不参与传播。
+/// - 横纵移动代价为 resolution，对角移动代价为 sqrt(2) * resolution。
+///
+/// 注意：这里是二维启发距离图，不是最终的完整车辆碰撞检测。真正的车辆矩形 footprint
+/// 碰撞检查仍然发生在 expandNodes() 中的 detectCollision(next_index)。
+/// 这里用半车宽净空过滤格子，是为了让启发函数避开明显过窄的区域。
 void AstarSearch::setCollisionFreeDistanceMap()
 {
+  // 堆中的元素：二维栅格索引 + 从该栅格到目标的当前最短距离估计。
   using Entry = std::pair<IndexXY, double>;
   struct CompareEntry
   {
+    // priority_queue 默认是大顶堆；这里反过来比较，使距离最小的元素优先弹出。
     bool operator()(const Entry & a, const Entry & b) const { return a.second > b.second; }
   };
   std::priority_queue<Entry, std::vector<Entry>, CompareEntry> heap;
+  // closed[id] 表示该二维格子到目标的最短距离已经确定，不需要再次扩展。
   std::vector<bool> closed(col_free_distance_map_.size(), false);
+
+  // 将目标位姿离散成栅格索引。这里只使用 x/y，theta 不参与二维距离传播。
   auto goal_index = pose2index(costmap_, goal_pose_, planner_common_param_.theta_size);
+  // Dijkstra 从目标格子开始反向传播，因此目标到目标的距离为 0。
   col_free_distance_map_[indexToId(goal_index)] = 0.0;
   heap.push({IndexXY{goal_index.x, goal_index.y}, 0.0});
 
   Entry current;
+  // offsets = {-1, 0, 1}，双层循环后会形成当前格子的 8 邻域和自身。
   std::array<int, 3> offsets = {1, 0, -1};
   while (!heap.empty()) {
+    // 每次取出当前距离最小的格子，这就是 Dijkstra 的核心。
     current = heap.top();
     heap.pop();
     const int id = indexToId(current.first);
@@ -246,12 +289,19 @@ void AstarSearch::setCollisionFreeDistanceMap()
       for (const auto & offset_y : offsets) {
         const int y = index.y + offset_y;
         const IndexXY n_index{x, y};
+        // offset 用于区分自身、横纵邻居、对角邻居：
+        // offset == 0 表示自身；offset == 1 表示横纵移动；offset == 2 表示对角移动。
         const double offset = std::abs(offset_x) + std::abs(offset_y);
+        // 跳过越界格、障碍物格和自身格。
         if (isOutOfRange(n_index) || isObs(n_index) || offset < 1) continue;
+        // 跳过离障碍物小于半车宽的格子，避免启发距离穿过明显过窄的通道。
         if (getObstacleEDT(n_index).distance < 0.5 * collision_vehicle_shape_.width) continue;
         const int n_id = indexToId(n_index);
+        // 横纵移动增加 1 个 resolution；对角移动增加 sqrt(2) 个 resolution。
         const double dist = current.second + (sqrt(offset) * costmap_.info.resolution);
+        // 如果该格子已确定最短距离，或者已有更短路径，则无需更新。
         if (closed[n_id] || col_free_distance_map_[n_id] < dist) continue;
+        // 找到更短距离，更新距离图并放入堆，等待后续继续向外传播。
         col_free_distance_map_[n_id] = dist;
         heap.push({n_index, dist});
       }
@@ -261,18 +311,36 @@ void AstarSearch::setCollisionFreeDistanceMap()
 
 void AstarSearch::setStartNode(const double cost_offset)
 {
+  /// @brief 创建并初始化 A* 的起点节点。
+  /// @param cost_offset 起点初始代价偏移量，主要用于多目标/反向搜索时给不同起点加区分度，
+  ///        避免多个起点在 open list 中完全同价导致的搜索偏置。
+  ///
+  /// 这个函数不做搜索，只做初始化：
+  /// 1. 将 start_pose_ 离散到 costmap 栅格索引。
+  /// 2. 在 graph_ 中找到该索引对应的 AstarNode。
+  /// 3. 计算起点的初始总代价 initial_cost = 启发代价 + cost_offset。
+  /// 4. 将起点节点标记为 Open，并设置 parent = nullptr。
+  /// 5. 把起点压入 openlist_，作为 search() 的第一个待扩展节点。
   const auto index = pose2index(costmap_, start_pose_, planner_common_param_.theta_size);
-  // Set start node
+  // graph_ 预先按所有 (x, y, theta) 组合分配好了空间，这里直接取出对应节点地址。
   AstarNode * start_node = &graph_[getKey(index)];
+  // 起点的总初始代价由启发函数 estimateCost() 给出，再叠加 cost_offset。
+  // 这样做可以让多目标或多起点场景下，不同起点的优先级稍微拉开。
   const double initial_cost = estimateCost(start_pose_, index) + cost_offset;
+  // move_cost=0.0 表示还没有走任何实际运动；steering=0 表示初始转角未知/默认直行。
   start_node->set(start_pose_, 0.0, initial_cost, 0, false);
+  // 起点刚加入搜索时，方向累计距离为 0，后续用于估计换挡惩罚。
   start_node->dir_distance = 0.0;
+  // 记录起点到目标的几何距离，后续扩展时会用来调整扩展步长。
   start_node->dist_to_goal = calc_distance2d(start_pose_, goal_pose_);
+  // 记录起点到最近障碍物的 EDT 距离，后续也会用于自适应扩展和障碍物代价。
   start_node->dist_to_obs = getObstacleEDT(index).distance;
+  // 起点已经进入 open list 等待扩展。
   start_node->status = NodeStatus::Open;
+  // 起点没有父节点，因为它就是搜索树的根。
   start_node->parent = nullptr;
 
-  // Push start node to openlist
+  // 把起点节点压入优先队列，search() 会从这里开始扩展。
   openlist_.push(start_node);
 }
 
@@ -289,85 +357,146 @@ double AstarSearch::estimateCost(const Pose & pose, const IndexXYT & index) cons
 
 bool AstarSearch::search()
 {
+  /// @brief A* / Hybrid A* 主搜索循环。
+  ///
+  /// 这个函数只做搜索控制，不直接生成几何边：
+  /// 1. 记录搜索开始时间，用于超时保护。
+  /// 2. 不断从 openlist_ 中取出 fc 最小的节点。
+  /// 3. 跳过已经被关闭的重复节点。
+  /// 4. 检查当前节点是否已经满足目标条件。
+  /// 5. 若未到达目标，则扩展前进方向；必要时也扩展倒车方向。
+  /// 6. openlist_ 为空时仍未找到目标，则返回失败。
+  ///
+  /// 成功结束时，setPath() 已经把目标到起点的父链回溯成 waypoints_。
   const rclcpp::Time begin = rclcpp::Clock(RCL_ROS_TIME).now();
 
-  // Start A* search
+  // openlist_ 为空意味着没有待扩展节点，通常表示搜索失败或已经结束。
   while (!openlist_.empty()) {
-    // Check time and terminate if the search reaches the time limit
+    // 每轮都检查耗时，防止在复杂障碍环境里搜索过久影响实时性。
     const rclcpp::Time now = rclcpp::Clock(RCL_ROS_TIME).now();
     const double msec = (now - begin).seconds() * 1000.0;
     if (msec > planner_common_param_.time_limit) {
       return false;
     }
 
-    // Expand minimum cost node
+    // 取出当前 open list 中总代价 fc 最小的节点。
     AstarNode * current_node = openlist_.top();
     openlist_.pop();
+    // 同一节点可能因为更优路径被重新放入 open list，旧条目会留在堆里。
+    // 如果它已经被关闭，说明更优版本已处理过，直接跳过。
     if (current_node->status == NodeStatus::Closed) continue;
+    // 当前节点即将被展开，标记为 Closed，防止重复扩展。
     current_node->status = NodeStatus::Closed;
 
+    // 若当前节点已经进入目标窗口，就可以停止搜索并回溯路径。
     if (isGoal(*current_node)) {
       goal_node_ = current_node;
       setPath(*current_node);
       return true;
     }
 
+    // 扩展前进方向的运动原语：转角离散 + 自行车模型积分 + 碰撞检测 + 代价更新。
     expandNodes(*current_node);
+    // 如果允许倒车，再额外扩展一组倒车运动原语。
     if (astar_param_.use_back) expandNodes(*current_node, true);
   }
 
-  // Failed to find path
+  // openlist_ 被耗尽仍未找到目标，说明当前地图/参数下不存在可行路径或搜索没能覆盖到。
   return false;
 }
 
 void AstarSearch::expandNodes(AstarNode & current_node, const bool is_back)
 {
+  /// @brief 从当前节点向外扩展一组车辆运动原语。
+  ///
+  /// @param current_node 当前正在展开的 AstarNode。
+  /// @param is_back false 表示扩展前进动作，true 表示扩展倒车动作。
+  ///
+  /// 这个函数是 Hybrid A* 的“车辆化扩展”核心，流程如下：
+  /// 1. 把当前节点转回连续位姿。
+  /// 2. 决定本次扩展是前进还是倒车，以及对应的行驶方向符号。
+  /// 3. 枚举所有离散转角。
+  /// 4. 用运动学自行车模型积分出下一个位姿。
+  /// 5. 将新位姿离散成栅格索引并检查越界/占据/整车碰撞。
+  /// 6. 计算新的实际代价 gc 和总代价 fc。
+  /// 7. 如果这个节点更优，就更新它的父节点并放入 openlist_。
   const auto current_pose = node2pose(current_node);
+  // is_back 表示这次扩展选择的是“前进还是倒车”。
+  // is_backward_search_ 表示当前搜索本身是不是反向搜索。
+  // 两者相同则说明本次扩展的运动方向与搜索方向一致，距离取正；否则取负。
   const double direction = (is_back == is_backward_search_) ? 1.0 : -1.0;
+  // 当前扩展步长可能自适应变化；再乘方向符号后，得到带正负号的行驶距离。
   const double distance = getExpansionDistance(current_node) * direction;
+  // 从最左转到最右转枚举离散转角。
   int steering_index = -1 * planner_common_param_.turning_steps;
   for (; steering_index <= planner_common_param_.turning_steps; ++steering_index) {
-    // skip expansion back to parent
+    // 如果当前节点不是根节点，且这次扩展切换了前进/倒车方向，
+    // 同时转角又和父节点完全一致，那么大概率只是“原路倒回去”，直接跳过。
     if (
       current_node.parent != nullptr && is_back != current_node.is_back &&
       steering_index == current_node.steering_index) {
       continue;
     }
 
+    // 把整数转角索引转换成真实前轮转角。
     const double steering = static_cast<double>(steering_index) * steering_resolution_;
+    // 用运动学自行车模型积分出下一时刻的连续位姿。
     const auto next_pose = kinematic_bicycle_model::getPose(
       current_pose, collision_vehicle_shape_.base_length, steering, distance);
+    // 将连续位姿离散到 costmap 的 (x, y, theta) 索引。
     const auto next_index = pose2index(costmap_, next_pose, planner_common_param_.theta_size);
 
+    // 先做最便宜的过滤：越界或目标格本身是障碍物，直接丢弃。
     if (isOutOfRange(next_index) || isObs(next_index)) continue;
 
+    // next_node 指向 graph_ 中对应离散状态的槽位。
+    // 如果该状态已经被 Closed，或者完整车身碰撞，则不再继续扩展它。
     AstarNode * next_node = &graph_[getKey(next_index)];
     if (next_node->status == NodeStatus::Closed || detectCollision(next_index)) continue;
 
+    // 获取该格子的 EDT 距离和方向信息，用于障碍物距离代价。
     const auto obs_edt = getObstacleEDT(next_index);
+    // 如果这次扩展的方向和父节点不同，说明发生了“前进/倒车切换”。
     const bool is_direction_switch =
       (current_node.parent != nullptr) && (is_back != current_node.is_back);
 
+    // total_weight 是当前一步的基础距离权重：
+    // 1.0 表示基础行驶距离
+    // getSteeringCost() 让大转角略贵
+    // 如果是倒车，再额外乘以 reverse_weight
     double total_weight = 1.0;
     total_weight += getSteeringCost(steering_index);
     if (is_back) total_weight *= (1.0 + planner_common_param_.reverse_weight);
 
+    // 从父节点累计实际代价 gc 开始，叠加这一步的各种局部代价。
     double move_cost = current_node.gc + (total_weight * std::abs(distance));
+    // 转角变化越大，代价越高，鼓励方向盘动作更平滑。
     move_cost += getSteeringChangeCost(steering_index, current_node.steering_index);
+    // 越靠近障碍物，代价越高，即使还没碰撞也会被惩罚。
     move_cost += getObsDistanceCost(next_index, obs_edt);
+    // 接近目标时，横向偏差越大，代价越高，鼓励最后一段对准目标。
     move_cost += getLatDistanceCost(next_pose);
+    // 若刚发生前进/倒车切换，再加一次方向切换惩罚。
     if (is_direction_switch) move_cost += getDirectionChangeCost(current_node.dir_distance);
 
+    // f = g + h。这里 g 是实际累计代价，h 是启发式估计剩余代价。
     double total_cost = move_cost + estimateCost(next_pose, next_index);
-    // Compare cost
+    // 如果这个离散状态从未访问过，或者新路径比旧路径更优，就更新它。
     if (next_node->status == NodeStatus::None || next_node->fc > total_cost) {
+      // 先把该节点标记为 Open，表示它进入待扩展集合。
       next_node->status = NodeStatus::Open;
+      // 保存下一位姿、实际代价、总代价、转角索引和前进/倒车方向。
       next_node->set(next_pose, move_cost, total_cost, steering_index, is_back);
+      // 记录从最近一次方向切换以来已经走了多少距离。
       next_node->dir_distance =
         std::abs(distance) + (is_direction_switch ? 0.0 : current_node.dir_distance);
+      // 记录该节点到目标的几何距离，后面 getExpansionDistance() 会用到。
       next_node->dist_to_goal = calc_distance2d(next_pose, goal_pose_);
+      // 记录该节点到最近障碍物的 EDT 距离，后面也会影响扩展步长和代价。
       next_node->dist_to_obs = obs_edt.distance;
+      // 父节点指针用于最终回溯整条路径。
       next_node->parent = &current_node;
+      // 放入优先队列，等待 future search 轮次里被取出继续扩展。
       openlist_.push(next_node);
       continue;
     }

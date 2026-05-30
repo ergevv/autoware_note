@@ -1,5 +1,8 @@
 参考：autoware、ChatGPT
 
+对应源码文件: 
+autoware_devel/src/universe/autoware_universe/planning/autoware_path_optimizer/src/node.cpp
+
 # 从零理解 Autoware 的 MPT 轨迹优化
 
 这篇文章讲的是 Autoware path optimizer 里的 MPT，也就是 Model Predictive Trajectory。它不是一个全局路径搜索算法，而是一个局部轨迹优化算法：上游已经给出一条可行驶参考路径、左右边界和速度信息，MPT 在自车附近截取一段局部窗口，在车辆运动学、道路边界、障碍边界和平滑性之间做权衡，输出一条更平滑、更符合车辆运动学、更不容易碰撞的轨迹。

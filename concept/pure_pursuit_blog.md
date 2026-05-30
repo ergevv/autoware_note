@@ -1,3 +1,10 @@
+参考：ChatGPT、autoware
+
+对应源码文件: 
+autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
+
+Pure Pursuit: autoware_devel/src/universe/autoware_universe/control/autoware_pure_pursuit/src/autoware_pure_pursuit/autoware_pure_pursuit_lateral_controller.cpp
+
 # 从零到工程实践：层层递进理解 Pure Pursuit 横向控制
 
 Pure Pursuit 是自动驾驶和移动机器人中非常经典的路径跟踪算法。它的核心思想很朴素：不要盯着车辆脚下的最近点，而是在路径前方找一个目标点，然后让车辆沿一段圆弧追过去。

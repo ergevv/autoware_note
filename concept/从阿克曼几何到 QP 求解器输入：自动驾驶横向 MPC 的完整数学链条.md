@@ -1,4 +1,9 @@
-参考：chatGPT
+参考：chatGPT、autoware
+
+对应源码文件: 
+autoware_devel/src/universe/autoware_universe/control/autoware_trajectory_follower_node/src/controller_node.cpp
+
+MPC: autoware_devel/src/universe/autoware_universe/control/autoware_mpc_lateral_controller/src/mpc_lateral_controller.cpp
 
 ---
 

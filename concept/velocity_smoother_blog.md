@@ -1,6 +1,8 @@
 
 参考：ChatGPT、autoware
 
+对应源码文件: autoware_devel/src/core/autoware_core/planning/autoware_velocity_smoother/src/node.cpp
+
 # 自动驾驶速度平滑教程：从运动约束到解析 Jerk 受限速度规划
 
 ## 1. 为什么自动驾驶需要速度平滑

@@ -1,5 +1,7 @@
 参考来源：ChatGPT、autoware
 
+对应源码文件: autoware_devel/src/universe/autoware_universe/planning/autoware_path_smoother/src/elastic_band_smoother.cpp
+
 # Autoware Elastic Band 路径平滑算法
 
 ## 1. 先理解它要解决什么问题

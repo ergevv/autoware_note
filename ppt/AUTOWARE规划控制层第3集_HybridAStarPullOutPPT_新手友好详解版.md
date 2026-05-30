@@ -3,7 +3,7 @@ marp: true
 theme: default
 paginate: true
 size: 16:9
-footer: "Autoware 规划与控制层教程 | 第 3 集 | 新手友好详解版"
+footer: "Autoware 规划与控制层教程 | 第 3 集 | Hybrid A* Freespace Pull Out"
 ---
 
 # 对应源码文件: 
@@ -31,8 +31,6 @@ marp AUTOWARE规划控制层第3集_HybridAStarPullOutPPT.md --pptx
 
 ## 车辆如何从自由空间回到车道
 
-### 新手友好详解版
-
 ```text
 Current Pose outside centerline
         ->
@@ -50,22 +48,6 @@ Road Centerline
 左侧画车辆停在路边或停车位，右侧画一条弯曲/倒车的路径接回车道中心线。
 -->
 
----
-
-# 新手友好版怎么使用
-
-本版不是精简版，而是：
-
-- 保留原有知识点
-- 把术语第一次出现时讲清楚
-- 把公式拆成“意义、符号、工程作用”
-- 在章节之间增加过渡页
-- 在难点后面补常见疑问
-
-```text
-目标：让第一次接触 Hybrid A* 的人，
-也能知道每一步为什么存在。
-```
 
 <!--
 讲解备注：
