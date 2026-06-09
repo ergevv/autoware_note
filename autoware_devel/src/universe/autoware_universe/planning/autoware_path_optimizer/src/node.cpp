@@ -112,7 +112,7 @@ PathOptimizer::PathOptimizer(const rclcpp::NodeOptions & node_options)
   // 创建输入路径的订阅器
   path_sub_ = create_subscription<Path>(
     "~/input/path", 1, std::bind(&PathOptimizer::onPath, this, std::placeholders::_1));
-
+ 
   // 创建调试信息发布器：扩展轨迹、标记、计算时间和处理时间详情
   debug_extended_traj_pub_ = create_publisher<Trajectory>("~/debug/extended_traj", 1);
   debug_markers_pub_ = create_publisher<MarkerArray>("~/debug/marker", 1);

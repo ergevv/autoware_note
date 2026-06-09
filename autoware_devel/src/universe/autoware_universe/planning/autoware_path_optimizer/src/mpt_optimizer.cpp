@@ -879,7 +879,7 @@ void MPTOptimizer::updateExtraPoints(std::vector<ReferencePoint> & ref_points) c
       if (0 < base_normalized_avoidance_cost) {
         const int edge_decrease_idx = std::floor(
           ref_points.at(i).normalized_avoidance_cost / mpt_param_.avoidance_cost_decrease_rate);
-        for (int j = -edge_decrease_idx; j <= edge_decrease_idx; ++j) {
+        for (int 4j = -edge_decrease_idx; j <= edge_decrease_idx; ++j) {
           const int k = i + j;
           if (0 <= k && k < static_cast<int>(ref_points.size())) {
             const double normalized_avoidance_cost = std::max(

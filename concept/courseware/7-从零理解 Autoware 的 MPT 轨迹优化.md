@@ -299,7 +299,7 @@ w_i=
 \end{bmatrix}
 $$
 
-如果为了稳定性暂时不使用参考曲率前馈，可以令 $\kappa_i=0$，于是：
+在autoware中，实测直接令$\kappa_i=0$，车辆更加稳定性，于是：
 
 $$
 \delta_r=0
@@ -367,7 +367,105 @@ $$
 X=A_\text{seq}X+B_\text{seq}U+W_\text{seq}
 $$
 
-很多人第一次看到这个式子会疑惑：为什么左右两边都是 $X$？左边不是预测后的状态，右边不是前一步状态吗？
+这里每个量都可以按“块矩阵”理解。假设每个状态 $x_i$ 有 $n_x=2$ 维，也就是 $x_i=[l_i,\theta_i]^T$；每个输入 $u_i$ 有 $n_u=1$ 维，也就是 $u_i=\delta_i$。如果优化窗口有 $N$ 个状态点，那么：
+
+- $X\in\mathbb{R}^{N n_x}$，表示整段轨迹上所有状态的堆叠。
+- $U\in\mathbb{R}^{(N-1)n_u}$，表示相邻状态之间使用的所有控制输入的堆叠。
+- $A_\text{seq}\in\mathbb{R}^{N n_x\times N n_x}$，表示状态之间的前后递推关系。
+- $B_\text{seq}\in\mathbb{R}^{N n_x\times (N-1)n_u}$，表示每一步控制输入对下一步状态的影响。
+- $W_\text{seq}\in\mathbb{R}^{N n_x}$，表示初始状态和每一步仿射偏置项的堆叠。
+
+注意，$A_\text{seq}$ 不是单步模型里的 $A_i$，而是由很多个 $A_i$ 按位置拼出来的大矩阵。同理，$B_\text{seq}$ 也不是单步模型里的 $B_i$，而是由很多个 $B_i$ 拼出来的大矩阵。
+
+为了看清楚它怎么来的，可以先把初始状态记为 $x_\text{init}$。第一个状态点通常需要等于当前车辆在参考线坐标下的状态：
+
+$$
+x_0=x_\text{init}
+$$
+
+后面的状态由第 6 节的一步模型递推：
+
+$$
+x_{i+1}=A_i x_i+B_i u_i+w_i
+$$
+
+把这些式子从 $x_0$ 一直写到 $x_{N-1}$，就是：
+
+$$
+\begin{bmatrix}
+x_0\\
+x_1\\
+x_2\\
+\vdots\\
+x_{N-1}
+\end{bmatrix}
+=
+\begin{bmatrix}
+0 & 0 & 0 & \cdots & 0\\
+A_0 & 0 & 0 & \cdots & 0\\
+0 & A_1 & 0 & \cdots & 0\\
+\vdots & \vdots & \ddots & \ddots & \vdots\\
+0 & 0 & \cdots & A_{N-2} & 0
+\end{bmatrix}
+\begin{bmatrix}
+x_0\\
+x_1\\
+x_2\\
+\vdots\\
+x_{N-1}
+\end{bmatrix}
++
+\begin{bmatrix}
+0 & 0 & 0 & \cdots & 0\\
+B_0 & 0 & 0 & \cdots & 0\\
+0 & B_1 & 0 & \cdots & 0\\
+\vdots & \vdots & \ddots & \ddots & \vdots\\
+0 & 0 & \cdots & 0 & B_{N-2}
+\end{bmatrix}
+\begin{bmatrix}
+u_0\\
+u_1\\
+u_2\\
+\vdots\\
+u_{N-2}
+\end{bmatrix}
++
+\begin{bmatrix}
+x_\text{init}\\
+w_0\\
+w_1\\
+\vdots\\
+w_{N-2}
+\end{bmatrix}
+$$
+
+上面这个大式子就是 $X=A_\text{seq}X+B_\text{seq}U+W_\text{seq}$ 的完整展开。第一行块表示 $x_0=x_\text{init}$，也就是把当前车辆状态固定住；第二行块表示 $x_1=A_0x_0+B_0u_0+w_0$；第三行块表示 $x_2=A_1x_1+B_1u_1+w_1$，后面依次类推。
+
+如果用第 6 节的简化模型，$A_i$、$B_i$、$w_i$ 具体就是：
+
+$$
+A_i=
+\begin{bmatrix}
+1 & \Delta s_i\\
+0 & 1
+\end{bmatrix},
+\qquad
+B_i=
+\begin{bmatrix}
+0\\
+\frac{\Delta s_i}{L}
+\end{bmatrix},
+\qquad
+w_i=
+\begin{bmatrix}
+0\\
+0
+\end{bmatrix}
+$$
+
+它的含义也很直观：$A_i$ 负责把上一点的横向误差和航向误差传播到下一点，$B_i$ 负责描述转向角 $\delta_i$ 对下一点航向误差的影响，$w_i$ 负责补上模型线性化或参考曲率带来的常数项。在简化模型里忽略参考曲率，所以 $w_i=0$。
+
+也许第一次看到这个式子会疑惑：为什么左右两边都是 $X$？左边不是预测后的状态，右边不是前一步状态吗？
 
 关键在于：这里的 $X$ 是整段轨迹的状态堆叠向量，不是单个时刻的状态。矩阵 $A_\text{seq}$ 是一个块下移矩阵，它的第 $i$ 行块只会取到 $x_{i-1}$，不会取到同一个 $x_i$。
 
@@ -530,7 +628,33 @@ $$
 
 在弯道上，不能简单认为前方参考点还沿当前参考点的 $x$ 轴方向。参考线会转弯，所以要引入 $\alpha_i$。
 
-$\alpha_i$ 表示当前参考点的航向 $\psi_i^\text{ref}$ 和前方约一个轴距处参考方向之间的夹角。它可以理解为“车辆尺度下，参考线前方弯向哪里”。
+$\alpha_i$ 表示当前参考点的航向 $\psi_i^\text{ref}$，和“当前参考点指向前方约一个轴距处参考点的连线方向”之间的夹角。注意这里用的是两个点构成的直线方向，也可以叫弦方向，不是前方参考点自己的 yaw。
+
+设当前参考点位置为 $p_i^\text{ref}$，沿参考线向前约一个轴距 $L$ 找到的位置为 $p_i^\text{front}$。从当前点指向前方点的连线方向为：
+
+$$
+\psi_i^\text{chord}
+=
+\operatorname{atan2}
+\left(
+y_i^\text{front}-y_i^\text{ref},
+x_i^\text{front}-x_i^\text{ref}
+\right)
+$$
+
+那么：
+
+$$
+\alpha_i=\psi_i^\text{chord}-\psi_i^\text{ref}
+$$
+
+
+这一点和后面谈到的 $\beta$ 不一样：
+
+- $\alpha_i$ 比较的是“当前参考点 yaw”和“当前点到前方点的连线方向”。
+- $\beta_{i,l}$ 比较的是“当前参考点 yaw”和“车辆圆检查位置的参考线 yaw”。
+
+也就是说，$\alpha$ 用的是点到点的弦方向，$\beta$ 用的是两处参考线的切线方向。二者都和弯道投影有关，但几何来源不同。
 
 这里容易混淆两个距离：
 
@@ -626,7 +750,7 @@ $$
 $$
 z_l=
 l\cos\alpha
-d(-\sin\alpha\cos\theta+\cos\alpha\sin\theta)
++d(-\sin\alpha\cos\theta+\cos\alpha\sin\theta)
 $$
 
 括号内是三角恒等式：
@@ -670,7 +794,7 @@ $$
 z_{l,i}
 \approx
 \cos\alpha_i\ l_i
-d\cos\alpha_i\ \theta_i
++d\cos\alpha_i\ \theta_i
 -d\sin\alpha_i
 $$
 
@@ -800,6 +924,53 @@ $$
 $$
 
 $\beta$ 表达的是：当前参考点的切线方向，与车辆圆所在路径位置的切线方向之间的差。在直线上，$\beta=0$。在弯道上，前方圆、后方圆对应的路径方向可能不同，所以必须引入 $\beta$。
+
+更具体地说，优化变量 $l_i$ 和 $\theta_i$ 都定义在第 $i$ 个参考点的局部坐标系里，也就是以 $\psi_i^\text{ref}$ 为方向的坐标系。但碰撞检查不是只检查车辆基准点，而是检查车辆上多个圆。第 $l$ 个圆心相对车辆基准点有一个纵向偏移 $d_l$，所以这个圆真正应该和道路边界比较的位置，是沿参考线前后移动 $d_l$ 后的那个位置。那个位置的参考方向是 $\psi_{i,l}^\text{circle}$。
+
+于是就出现了两个坐标系：
+
+- 状态坐标系：在当前参考点 $i$ 上，方向是 $\psi_i^\text{ref}$。
+- 圆心约束坐标系：在第 $l$ 个车辆圆对应的路径位置上，方向是 $\psi_{i,l}^\text{circle}$。
+
+$\beta_{i,l}$ 就是这两个坐标系之间的夹角。它的作用不是描述车辆本身转了多少，而是描述“用当前点的 $l_i,\theta_i$ 去计算圆心横向位置时，坐标系方向需要旋转多少”。
+
+可以把它理解成一个投影修正角。碰撞约束关心的是圆心在圆心约束坐标系里的横向坐标，也就是沿 $n_{i,l}^\text{circle}$ 的投影。但 $l_i$ 是沿当前参考点法向 $n_i$ 定义的，两者不一定平行，所以：
+
+$$
+\left(n_{i,l}^\text{circle}\right)^T n_i=\cos\beta_{i,l}
+$$
+
+这就是为什么后面圆心横向位置公式里，$l_i$ 前面会乘一个 $\cos\beta_{i,l}$。如果道路是直线，两处参考方向相同，$\beta_{i,l}=0$，那么 $\cos\beta_{i,l}=1$，$l_i$ 就可以原样作为圆心横向偏移的一部分。
+
+再看车辆圆的纵向偏移 $d_l$。如果车辆航向完全等于当前参考方向，并且道路是弯的，那么“向车身前方移动 $d_l$”这段位移，投影到圆心约束坐标系的横向方向上，可能天然就有一个横向分量。这个常数横向分量就是：
+
+$$
+d_l\sin\beta_{i,l}
+$$
+
+所以 $\beta$ 会同时出现在两个地方：
+
+- $\cos\beta_{i,l}l_i$：修正当前横向误差 $l_i$ 在圆心坐标系下的投影。
+- $d_l\sin\beta_{i,l}$：表示即使 $\theta_i=0$，车身前后圆心因为道路曲率和坐标系旋转，也会产生的横向投影常数项。
+
+再考虑航向误差 $\theta_i$。车辆圆心相对基准点向前 $d_l$，如果车辆相对参考线还有一个小航向误差 $\theta_i$，那么这个前移量会额外带来横向变化。小角度线性化后，这部分就是：
+
+$$
+d_l\cos\beta_{i,l}\theta_i
+$$
+
+因此后面会得到车辆圆心横向位置的近似式：
+
+$$
+y_{i,l}^\text{circle}
+\approx
+\cos\beta_{i,l}\ l_i
++d_l\cos\beta_{i,l}\ \theta_i
++d_l\sin\beta_{i,l}
+$$
+
+
+后续构造约束矩阵时，`cos(beta)` 会进入 $l_i$ 和 $\theta_i$ 的系数，`lon_offset * sin(beta)` 会进入常数项。这样 QP 里的碰撞约束虽然仍然是线性的，但已经考虑了弯道上“车辆圆检查位置”和“当前优化状态位置”方向不一致的问题。
 
 当前参考点的左法向为：
 
