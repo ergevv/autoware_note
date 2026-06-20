@@ -431,42 +431,34 @@ $$
 所以第一段 $a_0\to a_p$ 的速度变化是：
 
 $$
-\Delta v_{a_0\to a_p}
-=
-\frac{a_0+a_p}{2}\cdot\frac{a_p-a_0}{j_{\mathrm{dec}}}
-=
+\Delta v_{a_0\to a_p}=
+\frac{a_0+a_p}{2}\cdot\frac{a_p-a_0}{j_{\mathrm{dec}}}=
 \frac{a_p^2-a_0^2}{2j_{\mathrm{dec}}}
 $$
 
 第二段 $a_p\to 0$ 的速度变化是：
 
 $$
-\Delta v_{a_p\to 0}
-=
-\frac{1}{2}\frac{0-a_p}{j_{\mathrm{acc}}}a_p
-=
+\Delta v_{a_p\to 0}=
+\frac{1}{2}\frac{0-a_p}{j_{\mathrm{acc}}}a_p=
 -\frac{a_p^2}{2j_{\mathrm{acc}}}
 $$
 
 把两项代回总速度变化方程：
 
 $$
-v_{\mathrm{target}}-v_0
-=
-\frac{a_p^2-a_0^2}{2j_{\mathrm{dec}}}
--
+v_{\mathrm{target}}-v_0=
+\frac{a_p^2-a_0^2}{2j_{\mathrm{dec}}}-
 \frac{a_p^2}{2j_{\mathrm{acc}}}
 $$
 
 把与 $a_p^2$ 有关的项合并：
 
 $$
-v_{\mathrm{target}}-v_0+\frac{a_0^2}{2j_{\mathrm{dec}}}
-=
+v_{\mathrm{target}}-v_0+\frac{a_0^2}{2j_{\mathrm{dec}}}=
 \frac{a_p^2}{2}
 \left(
-\frac{1}{j_{\mathrm{dec}}}
--
+\frac{1}{j_{\mathrm{dec}}}-
 \frac{1}{j_{\mathrm{acc}}}
 \right)
 $$
@@ -474,10 +466,8 @@ $$
 括号里的项继续通分：
 
 $$
-\frac{1}{j_{\mathrm{dec}}}
--
-\frac{1}{j_{\mathrm{acc}}}
-=
+\frac{1}{j_{\mathrm{dec}}}-
+\frac{1}{j_{\mathrm{acc}}}=
 \frac{j_{\mathrm{acc}}-j_{\mathrm{dec}}}{j_{\mathrm{acc}}j_{\mathrm{dec}}}
 $$
 
@@ -494,8 +484,7 @@ $$
 这个结果和常见写法是等价的，因为：
 
 $$
-\frac{1}{2}\frac{0-a_0}{j_{\mathrm{dec}}}a_0
-=
+\frac{1}{2}\frac{0-a_0}{j_{\mathrm{dec}}}a_0=
 -\frac{a_0^2}{2j_{\mathrm{dec}}}
 $$
 
@@ -759,8 +748,7 @@ $$
 对某个轨迹点 $i$，会在一个前后索引窗口内取最大曲率：
 
 $$
-\kappa_i^{\mathrm{win}}
-=
+\kappa_i^{\mathrm{win}}=
 \max_{j\in\mathcal{W}_i}|\kappa_j|
 $$
 
@@ -801,8 +789,7 @@ $$
 其中：
 
 $$
-v_{\mathrm{min}}
-=
+v_{\mathrm{min}}=
 \min_{i_{\mathrm{start}}\le i\le i_{\mathrm{end}}} v_{\kappa,i}
 $$
 
@@ -949,8 +936,7 @@ $$
 就需要降低这两个端点的速度。为了不破坏原有速度曲线形状，通常不是简单把两个点都设成 $v_{\delta,i}$，而是按比例缩放：
 
 $$
-v_i^{\mathrm{new}}
-=
+v_i^{\mathrm{new}}=
 \min\left(
 v_i,\ 
 \max\left(
@@ -1628,8 +1614,7 @@ $$
 $$
 \Delta v_1=
 \frac{a_0+a_{\min}}{2}\cdot
-\frac{a_{\min}-a_0}{j_{\mathrm{dec}}}
-=
+\frac{a_{\min}-a_0}{j_{\mathrm{dec}}}=
 \frac{a_{\min}^2-a_0^2}{2j_{\mathrm{dec}}}
 $$
 
@@ -1645,12 +1630,9 @@ $$
 
 $$
 \frac{1}{2}\frac{0-a_0}{j_{\mathrm{dec}}}a_0+
-\frac{1}{2}\frac{a_{\min}-0}{j_{\mathrm{dec}}}a_{\min}
-=
--\frac{a_0^2}{2j_{\mathrm{dec}}}
-+
-\frac{a_{\min}^2}{2j_{\mathrm{dec}}}
-=
+\frac{1}{2}\frac{a_{\min}-0}{j_{\mathrm{dec}}}a_{\min}=
+-\frac{a_0^2}{2j_{\mathrm{dec}}}+
+\frac{a_{\min}^2}{2j_{\mathrm{dec}}}=
 \frac{a_{\min}^2-a_0^2}{2j_{\mathrm{dec}}}
 $$
 
@@ -1758,38 +1740,31 @@ $$
 其中第一段不能默认经过 $0$。无论 $a_0>0$ 还是 $a_0<0$，都应该直接使用从 $a_0$ 到 $a_1$ 的一般形式：
 
 $$
-\Delta v_{a_0\to a_1}
-=
-\frac{a_0+a_1}{2}\cdot\frac{a_1-a_0}{j_{\mathrm{dec}}}
-=
+\Delta v_{a_0\to a_1}=
+\frac{a_0+a_1}{2}\cdot\frac{a_1-a_0}{j_{\mathrm{dec}}}=
 \frac{a_1^2-a_0^2}{2j_{\mathrm{dec}}}
 $$
 
 第二段 $a_1\to0$ 的速度变化是：
 
 $$
-\Delta v_{a_1\to 0}
-=
-\frac{1}{2}\frac{0-a_1}{j_{\mathrm{acc}}}a_1
-=
+\Delta v_{a_1\to 0}=
+\frac{1}{2}\frac{0-a_1}{j_{\mathrm{acc}}}a_1=
 -\frac{a_1^2}{2j_{\mathrm{acc}}}
 $$
 
 代回总速度变化方程：
 
 $$
-v_T-v_0
-=
-\frac{a_1^2-a_0^2}{2j_{\mathrm{dec}}}
--
+v_T-v_0=
+\frac{a_1^2-a_0^2}{2j_{\mathrm{dec}}}-
 \frac{a_1^2}{2j_{\mathrm{acc}}}
 $$
 
 移项：
 
 $$
-v_T-v_0+\frac{a_0^2}{2j_{\mathrm{dec}}}
-=
+v_T-v_0+\frac{a_0^2}{2j_{\mathrm{dec}}}=
 \frac{1}{2}a_1^2
 \left(
 \frac{1}{j_{\mathrm{dec}}}-
@@ -1810,8 +1785,7 @@ $$
 这与常见的源码写法等价，因为：
 
 $$
-\frac{1}{2}\frac{0-a_0}{j_{\mathrm{dec}}}a_0
-=
+\frac{1}{2}\frac{0-a_0}{j_{\mathrm{dec}}}a_0=
 -\frac{a_0^2}{2j_{\mathrm{dec}}}
 $$
 

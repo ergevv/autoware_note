@@ -398,8 +398,7 @@ x_1\\
 x_2\\
 \vdots\\
 x_{N-1}
-\end{bmatrix}
-=
+\end{bmatrix}=
 \begin{bmatrix}
 0 & 0 & 0 & \cdots & 0\\
 A_0 & 0 & 0 & \cdots & 0\\
@@ -413,8 +412,7 @@ x_1\\
 x_2\\
 \vdots\\
 x_{N-1}
-\end{bmatrix}
-+
+\end{bmatrix}+
 \begin{bmatrix}
 0 & 0 & 0 & \cdots & 0\\
 B_0 & 0 & 0 & \cdots & 0\\
@@ -428,8 +426,7 @@ u_1\\
 u_2\\
 \vdots\\
 u_{N-2}
-\end{bmatrix}
-+
+\end{bmatrix}+
 \begin{bmatrix}
 x_\text{init}\\
 w_0\\
@@ -633,8 +630,7 @@ $\alpha_i$ 表示当前参考点的航向 $\psi_i^\text{ref}$，和“当前参�
 设当前参考点位置为 $p_i^\text{ref}$，沿参考线向前约一个轴距 $L$ 找到的位置为 $p_i^\text{front}$。从当前点指向前方点的连线方向为：
 
 $$
-\psi_i^\text{chord}
-=
+\psi_i^\text{chord}=
 \operatorname{atan2}
 \left(
 y_i^\text{front}-y_i^\text{ref},
